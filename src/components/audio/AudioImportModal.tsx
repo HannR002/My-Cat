@@ -29,52 +29,97 @@ export const AudioImportModal: React.FC<AudioImportModalProps> = ({
 
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isValidating, setIsValidating] = useState(false);
+  const [isValidFile, setIsValidFile] = useState(false);
   const [fileDuration, setFileDuration] = useState<number>(0);
+  const validationTokenRef = React.useRef(0);
 
   if (!isOpen) return null;
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setError(null);
+    setIsValidFile(false);
     const selectedFile = e.target.files?.[0];
-    if (!selectedFile) return;
+    if (!selectedFile) {
+      setFile(null);
+      setFileDuration(0);
+      return;
+    }
+
+    // Check non-empty file
+    if (selectedFile.size === 0) {
+      setFile(null);
+      setFileDuration(0);
+      setError(language === 'id' ? 'Berkas audio kosong (0 bytes).' : 'Audio file is empty (0 bytes).');
+      return;
+    }
 
     // Validate size (max 10MB)
     const MAX_SIZE = 10 * 1024 * 1024;
     if (selectedFile.size > MAX_SIZE) {
+      setFile(null);
+      setFileDuration(0);
       setError(t.fileTooLarge);
       return;
     }
 
-    // Validate mime type
-    const validTypes = ['audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/x-wav', 'audio/ogg', 'audio/webm'];
+    // Validate mime type & extension
+    const validTypes = ['audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/x-wav', 'audio/ogg', 'audio/webm', 'audio/m4a'];
     const isMimeValid = validTypes.includes(selectedFile.type) || /\.(mp3|wav|ogg|m4a)$/i.test(selectedFile.name);
 
     if (!isMimeValid) {
+      setFile(null);
+      setFileDuration(0);
       setError(t.invalidFileType);
       return;
     }
 
-    // Test playback capability & get duration
+    // Test playback capability & get duration with token to prevent async races
+    const currentToken = ++validationTokenRef.current;
+    setIsValidating(true);
     const testAudio = new Audio();
     const objectUrl = URL.createObjectURL(selectedFile);
     testAudio.src = objectUrl;
 
     testAudio.onloadedmetadata = () => {
-      setFileDuration(Math.round(testAudio.duration * 10) / 10 || 3);
+      if (validationTokenRef.current !== currentToken) {
+        URL.revokeObjectURL(objectUrl);
+        return;
+      }
+      if (!isFinite(testAudio.duration) || testAudio.duration <= 0) {
+        setError(language === 'id' ? 'Durasi audio tidak terbaca atau berkas tidak valid.' : 'Invalid or unreadable audio duration.');
+        setIsValidFile(false);
+        setFile(null);
+        setFileDuration(0);
+        setIsValidating(false);
+        URL.revokeObjectURL(objectUrl);
+        return;
+      }
+
+      setFileDuration(Math.round(testAudio.duration * 10) / 10);
+      setIsValidFile(true);
+      setFile(selectedFile);
+      setIsValidating(false);
       URL.revokeObjectURL(objectUrl);
+
+      if (!title) {
+        const cleanName = selectedFile.name.replace(/\.[^/.]+$/, '').replace(/[_-]/g, ' ');
+        setTitle(cleanName.charAt(0).toUpperCase() + cleanName.slice(1));
+      }
     };
 
     testAudio.onerror = () => {
+      if (validationTokenRef.current !== currentToken) {
+        URL.revokeObjectURL(objectUrl);
+        return;
+      }
       setError(language === 'id' ? 'Berkas audio rusak atau format tidak didukung oleh browser Anda.' : 'Corrupt audio file or unsupported codec.');
+      setIsValidFile(false);
+      setFile(null);
+      setFileDuration(0);
+      setIsValidating(false);
       URL.revokeObjectURL(objectUrl);
     };
-
-    setFile(selectedFile);
-    if (!title) {
-      // Auto-populate title from filename
-      const cleanName = selectedFile.name.replace(/\.[^/.]+$/, '').replace(/[_-]/g, ' ');
-      setTitle(cleanName.charAt(0).toUpperCase() + cleanName.slice(1));
-    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -306,11 +351,21 @@ export const AudioImportModal: React.FC<AudioImportModalProps> = ({
             </button>
             <button
               type="submit"
-              disabled={isSubmitting || !file}
+              disabled={isSubmitting || isValidating || !isValidFile || !file || !title.trim()}
               className="w-2/3 py-2.5 px-4 rounded-xl bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white font-bold text-sm shadow-md shadow-orange-600/20 transition active:scale-95 flex items-center justify-center gap-2"
             >
-              <CheckCircle2 className="w-4 h-4" />
-              <span>{isSubmitting ? 'Menyimpan...' : t.submitImportBtn}</span>
+              {isValidating ? (
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <CheckCircle2 className="w-4 h-4" />
+              )}
+              <span>
+                {isSubmitting
+                  ? 'Menyimpan...'
+                  : isValidating
+                  ? (language === 'id' ? 'Memvalidasi...' : 'Validating...')
+                  : t.submitImportBtn}
+              </span>
             </button>
           </div>
         </form>

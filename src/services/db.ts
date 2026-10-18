@@ -3,7 +3,12 @@ import {
   InteractionSession,
   AppSettings,
   UserImportedAudioRecord,
-} from '../types';
+  MetadataBackupPayload,
+  FullBackupPayload,
+  AnyBackupPayload,
+  RestoreSummary,
+} from '../types/index.ts';
+import { blobToDataUrl, dataUrlToBlob, validateBackupPayload } from '../utils/rules.ts';
 
 const DB_NAME = 'my_cat_db';
 const DB_VERSION = 1;
@@ -66,28 +71,29 @@ export class LocalDatabase {
       const store = tx.objectStore('cats');
       const req = store.getAll();
       req.onsuccess = () => {
-        const cats = req.result as CatProfile[];
-        if (cats.length === 0) {
-          // Initialize default friendly demo cat
-          const defaultCat: CatProfile = {
-            id: 'demo-cat-milo',
-            name: 'Milo',
-            avatar: 'cat_orange',
-            ageYears: 2,
-            ageMonths: 4,
-            breed: 'Domestic Shorthair (Tabby Oranye)',
-            gender: 'male',
-            notes: 'Kucing ramah yang penasaran dengan suara mainan dan suka mendengkur saat santai.',
-            createdAt: Date.now(),
-            updatedAt: Date.now(),
-          };
-          this.saveCat(defaultCat).then(() => resolve([defaultCat]));
-        } else {
-          resolve(cats);
-        }
+        const cats = (req.result as CatProfile[]) || [];
+        resolve(cats);
       };
       req.onerror = () => reject(req.error);
     });
+  }
+
+  // Voluntarily add friendly sample cat profile
+  async addDemoCat(): Promise<CatProfile> {
+    const demoCat: CatProfile = {
+      id: `demo-cat-milo-${Date.now()}`,
+      name: 'Milo',
+      avatar: 'cat_orange',
+      ageYears: 2,
+      ageMonths: 4,
+      breed: 'Domestic Shorthair (Tabby Oranye)',
+      gender: 'male',
+      notes: 'Kucing ramah yang penasaran dengan suara mainan dan suka mendengkur saat santai.',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    await this.saveCat(demoCat);
+    return demoCat;
   }
 
   async saveCat(cat: CatProfile): Promise<void> {
@@ -274,22 +280,26 @@ export class LocalDatabase {
     });
   }
 
-  // EXPORT ALL DATA TO JSON
-  async exportAllUserData(): Promise<string> {
-    const [cats, interactions, favorites, imported] = await Promise.all([
+  // EXPORT METADATA ONLY (JSON Ringan)
+  async exportMetadataOnly(): Promise<string> {
+    const [cats, interactions, favorites, imported, settings] = await Promise.all([
       this.getAllCats(),
       this.getAllInteractions(),
       this.getFavoriteIds(),
       this.getAllImportedAudio(),
+      this.getSettings(),
     ]);
 
-    const payload = {
+    const payload: MetadataBackupPayload = {
       app: 'My Cat',
-      version: '1.0.0',
+      version: '1.2.0',
+      schemaVersion: 2,
+      backupType: 'metadata_only',
       exportedAt: new Date().toISOString(),
       cats,
       interactions,
       favorites,
+      settings,
       importedAudioCount: imported.length,
       importedAudioMetadata: imported.map((item) => ({
         id: item.id,
@@ -303,6 +313,178 @@ export class LocalDatabase {
     };
 
     return JSON.stringify(payload, null, 2);
+  }
+
+  // EXPORT FULL BACKUP (Termasuk binary rekaman audio pengguna)
+  async exportFullBackup(): Promise<string> {
+    const [cats, interactions, favorites, imported, settings] = await Promise.all([
+      this.getAllCats(),
+      this.getAllInteractions(),
+      this.getFavoriteIds(),
+      this.getAllImportedAudio(),
+      this.getSettings(),
+    ]);
+
+    const fullImportedAudio = await Promise.all(
+      imported.map(async (item) => {
+        const dataUrl = await blobToDataUrl(item.blob);
+        return {
+          id: item.id,
+          title: item.title,
+          category: item.category,
+          description: item.description,
+          audioType: item.audioType,
+          duration: item.duration,
+          artist: item.artist,
+          source: item.source,
+          license: item.license,
+          mimeType: item.mimeType,
+          createdAt: item.createdAt,
+          dataUrl,
+        };
+      })
+    );
+
+    const payload: FullBackupPayload = {
+      app: 'My Cat',
+      version: '1.2.0',
+      schemaVersion: 2,
+      backupType: 'full_backup',
+      exportedAt: new Date().toISOString(),
+      cats,
+      interactions,
+      favorites,
+      settings,
+      importedAudio: fullImportedAudio,
+    };
+
+    return JSON.stringify(payload, null, 2);
+  }
+
+  // Backwards compatibility alias
+  async exportAllUserData(): Promise<string> {
+    return this.exportMetadataOnly();
+  }
+
+  // VALIDATE & RESTORE BACKUP
+  async validateAndRestoreBackup(
+    backupJsonString: string,
+    mode: 'merge' | 'replace' = 'merge'
+  ): Promise<RestoreSummary> {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(backupJsonString);
+    } catch {
+      throw new Error('Berkas bukan merupakan format JSON yang valid.');
+    }
+
+    const validation = validateBackupPayload(parsed);
+    if (!validation.isValid) {
+      throw new Error(validation.error || 'Berkas cadangan tidak valid.');
+    }
+
+    const payload = parsed as AnyBackupPayload;
+    const db = await this.getDB();
+
+    if (mode === 'replace') {
+      await this.clearAllUserData();
+    }
+
+    let importedCats = 0;
+    let importedInteractions = 0;
+    let importedFavs = 0;
+    let importedAudio = 0;
+
+    // Restore Cats
+    if (Array.isArray(payload.cats) && payload.cats.length > 0) {
+      const tx = db.transaction('cats', 'readwrite');
+      const store = tx.objectStore('cats');
+      for (const cat of payload.cats) {
+        if (cat && cat.id && cat.name) {
+          store.put(cat);
+          importedCats++;
+        }
+      }
+      await new Promise<void>((resolve, reject) => {
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+    }
+
+    // Restore Interactions
+    if (Array.isArray(payload.interactions) && payload.interactions.length > 0) {
+      const tx = db.transaction('interactions', 'readwrite');
+      const store = tx.objectStore('interactions');
+      for (const session of payload.interactions) {
+        if (session && session.id && session.catId) {
+          store.put(session);
+          importedInteractions++;
+        }
+      }
+      await new Promise<void>((resolve, reject) => {
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+    }
+
+    // Restore Favorites
+    if (Array.isArray(payload.favorites) && payload.favorites.length > 0) {
+      const tx = db.transaction('favorites', 'readwrite');
+      const store = tx.objectStore('favorites');
+      for (const favId of payload.favorites) {
+        if (typeof favId === 'string' && favId) {
+          store.put({ audioId: favId, addedAt: Date.now() });
+          importedFavs++;
+        }
+      }
+      await new Promise<void>((resolve, reject) => {
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+    }
+
+    // Restore Imported Audio (if full backup)
+    if (payload.backupType === 'full_backup' && Array.isArray(payload.importedAudio)) {
+      const tx = db.transaction('imported_audio', 'readwrite');
+      const store = tx.objectStore('imported_audio');
+      for (const item of payload.importedAudio) {
+        if (item && item.id && item.dataUrl) {
+          const blob = dataUrlToBlob(item.dataUrl);
+          const record: UserImportedAudioRecord = {
+            id: item.id,
+            title: item.title,
+            category: item.category,
+            description: item.description || '',
+            audioType: item.audioType || 'user_imported',
+            duration: item.duration || 1,
+            artist: item.artist || 'Pengguna',
+            source: item.source || 'Cadangan My Cat',
+            license: item.license || 'Personal Use',
+            mimeType: item.mimeType || 'audio/mpeg',
+            blob,
+            createdAt: item.createdAt || Date.now(),
+          };
+          store.put(record);
+          importedAudio++;
+        }
+      }
+      await new Promise<void>((resolve, reject) => {
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+    }
+
+    // Restore settings if present
+    if (payload.settings) {
+      await this.saveSettings(payload.settings);
+    }
+
+    return {
+      importedCats,
+      importedInteractions,
+      importedFavs,
+      importedAudio,
+    };
   }
 
   // CLEAR ALL DATA

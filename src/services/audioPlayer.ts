@@ -91,24 +91,53 @@ class AudioPlayerService {
     return () => this.listeners.delete(listener);
   }
 
-  public async play(audioId: string, audioSource: string | Blob): Promise<void> {
+  private sourceResolver: ((audioId: string) => Promise<string | Blob | null | undefined>) | null = null;
+
+  public setSourceResolver(
+    resolver: (audioId: string) => Promise<string | Blob | null | undefined>
+  ): void {
+    this.sourceResolver = resolver;
+  }
+
+  public async play(audioId: string, audioSource?: string | Blob): Promise<void> {
     if (!this.audioElement) {
       this.initAudioElement();
     }
     if (!this.audioElement) return;
 
-    // If same audio is currently playing, toggle pause
-    if (this.currentAudioId === audioId) {
+    // If same audio is currently loaded, toggle pause / resume
+    if (this.currentAudioId === audioId && this.audioElement.src) {
       if (this.audioElement.paused) {
-        try {
-          await this.audioElement.play();
-        } catch (err: unknown) {
-          const message = err instanceof Error ? err.message : 'Pemutaran dicegah oleh browser.';
-          this.updateState({ error: message, isPlaying: false });
-        }
+        await this.resume();
       } else {
         this.audioElement.pause();
       }
+      return;
+    }
+
+    // Resolve source if empty or omitted
+    let resolvedSource = audioSource;
+    if (
+      (!resolvedSource || (typeof resolvedSource === 'string' && !resolvedSource.trim())) &&
+      this.sourceResolver
+    ) {
+      try {
+        const fromResolver = await this.sourceResolver(audioId);
+        if (fromResolver) resolvedSource = fromResolver;
+      } catch (err) {
+        console.error('Audio source resolver error:', err);
+      }
+    }
+
+    // Validate that we have a playable non-empty source
+    if (!resolvedSource || (typeof resolvedSource === 'string' && !resolvedSource.trim())) {
+      this.stop();
+      this.updateState({
+        currentAudioId: audioId,
+        isPlaying: false,
+        isLoading: false,
+        error: 'Berkas audio tidak tersedia atau URL kosong.',
+      });
       return;
     }
 
@@ -121,10 +150,10 @@ class AudioPlayerService {
     }
 
     let srcUrl = '';
-    if (typeof audioSource === 'string') {
-      srcUrl = audioSource;
-    } else if (audioSource instanceof Blob) {
-      srcUrl = URL.createObjectURL(audioSource);
+    if (typeof resolvedSource === 'string') {
+      srcUrl = resolvedSource.trim();
+    } else if (resolvedSource instanceof Blob) {
+      srcUrl = URL.createObjectURL(resolvedSource);
       this.currentObjectUrl = srcUrl;
     }
 

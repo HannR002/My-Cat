@@ -18,6 +18,8 @@ import { usePWAInstall } from '../hooks/usePWAInstall';
 import { dbService } from '../services/db';
 import { BUNDLED_AUDIO } from '../data/bundledAudio';
 import { AudioImportModal } from '../components/audio/AudioImportModal';
+import { ConfirmModal } from '../components/common/ConfirmModal';
+import { validateBackupPayload } from '../utils/rules';
 
 interface SettingsViewProps {
   onRefreshAllData: () => void;
@@ -30,34 +32,140 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onRefreshAllData }) 
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [showAttributionsTable, setShowAttributionsTable] = useState(false);
   const [exportNotice, setExportNotice] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
 
-  // Handle Export to JSON
-  const handleExportData = async () => {
+  // Restore Modal State
+  const [pendingRestoreData, setPendingRestoreData] = useState<{
+    jsonString: string;
+    isFullBackup: boolean;
+    summary: {
+      catsCount: number;
+      interactionsCount: number;
+      favoritesCount: number;
+      importedAudioCount: number;
+    };
+  } | null>(null);
+  const [restoreMode, setRestoreMode] = useState<'merge' | 'replace'>('merge');
+  const [isRestoring, setIsRestoring] = useState(false);
+  const [isConfirmClearOpen, setIsConfirmClearOpen] = useState(false);
+
+  // Handle Export Metadata Only
+  const handleExportMetadata = async () => {
     try {
-      const jsonString = await dbService.exportAllUserData();
+      setExportError(null);
+      const jsonString = await dbService.exportMetadataOnly();
       const blob = new Blob([jsonString], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `my_cat_backup_${new Date().toISOString().slice(0, 10)}.json`;
+      a.download = `my_cat_metadata_${new Date().toISOString().slice(0, 10)}.json`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      setExportNotice(language === 'id' ? 'Berkas cadangan JSON berhasil diunduh!' : 'JSON backup downloaded successfully!');
+      setExportNotice(language === 'id' ? 'Berkas metadata JSON berhasil diunduh!' : 'Metadata JSON downloaded successfully!');
       setTimeout(() => setExportNotice(null), 4000);
     } catch {
-      alert('Gagal mengekspor data.');
+      setExportError(language === 'id' ? 'Gagal mengekspor metadata.' : 'Failed to export metadata.');
+    }
+  };
+
+  // Handle Export Full Backup (includes audio binaries as Base64 Data URLs)
+  const handleExportFullBackup = async () => {
+    try {
+      setExportError(null);
+      const jsonString = await dbService.exportFullBackup();
+      const blob = new Blob([jsonString], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `my_cat_full_backup_${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      setExportNotice(language === 'id' ? 'Cadangan penuh (termasuk audio) berhasil diunduh!' : 'Full backup (audio included) downloaded successfully!');
+      setTimeout(() => setExportNotice(null), 4000);
+    } catch {
+      setExportError(language === 'id' ? 'Gagal membuat cadangan penuh.' : 'Failed to create full backup.');
+    }
+  };
+
+  // Handle File Selected For Restore
+  const handleFileSelectedForRestore = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const text = reader.result as string;
+        const parsed = JSON.parse(text);
+        const validation = validateBackupPayload(parsed);
+        if (!validation.isValid) {
+          setExportError(validation.error || t.restoreErrorMsg);
+          return;
+        }
+
+        setPendingRestoreData({
+          jsonString: text,
+          isFullBackup: validation.isFullBackup,
+          summary: validation.summary || {
+            catsCount: 0,
+            interactionsCount: 0,
+            favoritesCount: 0,
+            importedAudioCount: 0,
+          },
+        });
+      } catch {
+        setExportError(t.restoreErrorMsg);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = ''; // reset input
+  };
+
+  // Execute Restore
+  const handleExecuteRestore = async () => {
+    if (!pendingRestoreData) return;
+    try {
+      setIsRestoring(true);
+      setExportError(null);
+      const summary = await dbService.validateAndRestoreBackup(
+        pendingRestoreData.jsonString,
+        restoreMode
+      );
+      onRefreshAllData();
+      setIsRestoring(false);
+      setPendingRestoreData(null);
+      setExportNotice(
+        language === 'id'
+          ? `Pemulihan selesai: ${summary.importedCats} kucing, ${summary.importedInteractions} sesi interaksi, ${summary.importedAudio} rekaman audio dipulihkan.`
+          : `Restoration complete: ${summary.importedCats} cats, ${summary.importedInteractions} sessions, ${summary.importedAudio} audio recordings restored.`
+      );
+      setTimeout(() => setExportNotice(null), 5000);
+    } catch (err) {
+      setIsRestoring(false);
+      const msg = err instanceof Error ? err.message : t.restoreErrorMsg;
+      setExportError(msg);
     }
   };
 
   // Handle Clear Local Data
-  const handleClearAllData = async () => {
-    if (confirm(t.clearDataConfirm)) {
-      await dbService.clearAllUserData();
-      onRefreshAllData();
-      alert(language === 'id' ? 'Seluruh data lokal telah dibersihkan.' : 'All local data has been reset.');
-    }
+  const handleClearAllData = () => {
+    setIsConfirmClearOpen(true);
+  };
+
+  const executeClearAllData = async () => {
+    await dbService.clearAllUserData();
+    onRefreshAllData();
+    setIsConfirmClearOpen(false);
+    setExportNotice(
+      language === 'id'
+        ? 'Seluruh data lokal telah berhasil dibersihkan.'
+        : 'All local data has been successfully reset.'
+    );
+    setTimeout(() => setExportNotice(null), 4000);
   };
 
   return (
@@ -154,14 +262,175 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onRefreshAllData }) 
         <p className="text-xs text-gray-500 leading-relaxed font-normal">
           {t.exportDesc}
         </p>
-        <button
-          onClick={handleExportData}
-          className="px-4 py-2.5 rounded-xl bg-gray-900 hover:bg-black text-white text-xs font-bold shadow-sm transition active:scale-95 flex items-center gap-2"
-        >
-          <Download className="w-3.5 h-3.5" />
-          <span>{t.exportBtn}</span>
-        </button>
+
+        <div className="flex flex-col sm:flex-row gap-2.5 pt-1">
+          <button
+            onClick={handleExportMetadata}
+            className="flex-1 px-4 py-2.5 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-800 text-xs font-bold transition active:scale-95 flex items-center justify-center gap-2"
+          >
+            <Download className="w-3.5 h-3.5 text-gray-600" />
+            <span>{t.exportBtn}</span>
+          </button>
+          <button
+            onClick={handleExportFullBackup}
+            className="flex-1 px-4 py-2.5 rounded-xl bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold shadow-md shadow-orange-600/20 transition active:scale-95 flex items-center justify-center gap-2"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>{t.exportFullBtn}</span>
+          </button>
+        </div>
+
+        <div className="p-3 bg-orange-50/70 border border-orange-200/60 rounded-xl text-[11px] text-orange-900 leading-relaxed font-normal">
+          {t.backupLimitationNotice}
+        </div>
       </div>
+
+      {/* Data Restore Section */}
+      <div className="bg-white rounded-3xl p-5 shadow-sm border border-orange-100 space-y-3">
+        <div className="flex items-center gap-2 text-sm font-bold text-gray-900">
+          <Upload className="w-4 h-4 text-orange-600" />
+          <span>{t.restoreSectionTitle}</span>
+        </div>
+        <p className="text-xs text-gray-500 leading-relaxed font-normal">
+          {t.restoreDesc}
+        </p>
+
+        <div>
+          <label className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gray-900 hover:bg-black text-white text-xs font-bold shadow-sm transition active:scale-95 cursor-pointer">
+            <Upload className="w-3.5 h-3.5" />
+            <span>{t.restoreBtn}</span>
+            <input
+              type="file"
+              accept=".json"
+              onChange={handleFileSelectedForRestore}
+              className="hidden"
+            />
+          </label>
+        </div>
+      </div>
+
+      {/* Restore Confirmation Modal */}
+      {pendingRestoreData && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn"
+        >
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-orange-100 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-black text-gray-900">
+                {t.restoreModalTitle}
+              </h3>
+              <button
+                onClick={() => setPendingRestoreData(null)}
+                className="p-1 rounded-full text-gray-400 hover:text-gray-700 hover:bg-gray-100"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Backup summary details */}
+            <div className="p-3.5 bg-orange-50/70 border border-orange-200/80 rounded-2xl text-xs space-y-1.5 text-orange-950">
+              <div className="font-bold flex items-center justify-between">
+                <span>{language === 'id' ? 'Tipe Berkas:' : 'Archive Type:'}</span>
+                <span className="font-mono bg-white px-2 py-0.5 rounded border border-orange-200">
+                  {pendingRestoreData.isFullBackup
+                    ? (language === 'id' ? 'Cadangan Penuh (+Audio)' : 'Full Backup (+Audio)')
+                    : (language === 'id' ? 'Metadata JSON' : 'Metadata Only')}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span>{language === 'id' ? 'Profil Kucing:' : 'Cat Profiles:'}</span>
+                <strong>{pendingRestoreData.summary.catsCount}</strong>
+              </div>
+              <div className="flex justify-between">
+                <span>{language === 'id' ? 'Sesi Interaksi:' : 'Interaction Logs:'}</span>
+                <strong>{pendingRestoreData.summary.interactionsCount}</strong>
+              </div>
+              <div className="flex justify-between">
+                <span>{language === 'id' ? 'Rekaman Audio Impor:' : 'Imported Audio Recordings:'}</span>
+                <strong>{pendingRestoreData.summary.importedAudioCount}</strong>
+              </div>
+              <div className="flex justify-between">
+                <span>{language === 'id' ? 'Suara Favorit:' : 'Favorites:'}</span>
+                <strong>{pendingRestoreData.summary.favoritesCount}</strong>
+              </div>
+            </div>
+
+            {/* Mode selection */}
+            <div className="space-y-2 text-xs">
+              <label className="font-bold text-gray-800 block">
+                {language === 'id' ? 'Pilih Metode Pemulihan:' : 'Choose Restoration Mode:'}
+              </label>
+
+              <label className="flex items-start gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50/50 cursor-pointer hover:bg-orange-50/30">
+                <input
+                  type="radio"
+                  name="restoreMode"
+                  checked={restoreMode === 'merge'}
+                  onChange={() => setRestoreMode('merge')}
+                  className="mt-0.5 accent-orange-600"
+                />
+                <div>
+                  <span className="font-bold text-gray-900 block">
+                    {t.restoreMergeOption}
+                  </span>
+                  <span className="text-[11px] text-gray-500 font-normal">
+                    {language === 'id'
+                      ? 'Menambahkan data dari cadangan tanpa menghapus data lokal yang sudah ada saat ini.'
+                      : 'Appends backup data without deleting existing local records.'}
+                  </span>
+                </div>
+              </label>
+
+              <label className="flex items-start gap-2.5 p-3 rounded-xl border border-rose-200 bg-rose-50/30 cursor-pointer hover:bg-rose-50/60">
+                <input
+                  type="radio"
+                  name="restoreMode"
+                  checked={restoreMode === 'replace'}
+                  onChange={() => setRestoreMode('replace')}
+                  className="mt-0.5 accent-rose-600"
+                />
+                <div>
+                  <span className="font-bold text-rose-950 block">
+                    {t.restoreReplaceOption}
+                  </span>
+                  <span className="text-[11px] text-rose-800 font-normal">
+                    {language === 'id'
+                      ? 'PERINGATAN: Menghapus seluruh data lokal yang ada dan menggantinya dengan isi berkas cadangan ini.'
+                      : 'WARNING: Clears all current local records and replaces them with this backup.'}
+                  </span>
+                </div>
+              </label>
+            </div>
+
+            {/* Actions */}
+            <div className="pt-2 flex gap-2">
+              <button
+                type="button"
+                onClick={() => setPendingRestoreData(null)}
+                disabled={isRestoring}
+                className="w-1/3 py-2.5 px-4 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-xs transition"
+              >
+                {t.cancelBtn}
+              </button>
+              <button
+                type="button"
+                onClick={handleExecuteRestore}
+                disabled={isRestoring}
+                className="w-2/3 py-2.5 px-4 rounded-xl bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white font-bold text-xs shadow-md shadow-orange-600/20 transition active:scale-95 flex items-center justify-center gap-2"
+              >
+                {isRestoring ? (
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <CheckCircle2 className="w-4 h-4" />
+                )}
+                <span>{isRestoring ? 'Memulihkan...' : t.restoreExecuteBtn}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Clear Data Section */}
       <div className="bg-white rounded-3xl p-5 shadow-sm border border-gray-200 space-y-3">
@@ -290,6 +559,18 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onRefreshAllData }) 
         isOpen={isImportModalOpen}
         onClose={() => setIsImportModalOpen(false)}
         onSuccess={onRefreshAllData}
+      />
+
+      {/* Clear All Data Confirmation Modal */}
+      <ConfirmModal
+        isOpen={isConfirmClearOpen}
+        title={t.clearDataBtn}
+        message={t.clearDataConfirm}
+        confirmText={language === 'id' ? 'Hapus Semua Data' : 'Reset All Data'}
+        cancelText={language === 'id' ? 'Batal' : 'Cancel'}
+        isDanger={true}
+        onConfirm={executeClearAllData}
+        onCancel={() => setIsConfirmClearOpen(false)}
       />
     </div>
   );

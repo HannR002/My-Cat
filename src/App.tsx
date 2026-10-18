@@ -11,6 +11,7 @@ import { OfflineBanner } from './components/layout/OfflineBanner';
 import { AudioPlayerBar } from './components/audio/AudioPlayerBar';
 import { AudioInfoModal } from './components/audio/AudioInfoModal';
 import { CatProfileModal } from './components/profile/CatProfileModal';
+import { ConfirmModal } from './components/common/ConfirmModal';
 
 import { HomeView } from './views/HomeView';
 import { SoundLibraryView } from './views/SoundLibraryView';
@@ -22,6 +23,7 @@ import { SettingsView } from './views/SettingsView';
 
 import { BUNDLED_AUDIO } from './data/bundledAudio';
 import { dbService } from './services/db';
+import { audioPlayer } from './services/audioPlayer';
 import { CatProfile, InteractionSession, UserImportedAudioRecord, AudioItem } from './types';
 
 function MainApp() {
@@ -47,6 +49,7 @@ function MainApp() {
   // Modals
   const [isAddCatModalOpen, setIsAddCatModalOpen] = useState(false);
   const [infoModalItem, setInfoModalItem] = useState<AudioItem | null>(null);
+  const [audioToDeleteId, setAudioToDeleteId] = useState<string | null>(null);
 
   // Load all local data from IndexedDB
   const loadAllData = useCallback(async () => {
@@ -69,6 +72,22 @@ function MainApp() {
   }, []);
 
   useEffect(() => {
+    // Register centralized audio source resolver for the entire app
+    audioPlayer.setSourceResolver(async (audioId: string) => {
+      // 1. Check bundled audio catalog
+      const bundled = BUNDLED_AUDIO.find((b) => b.id === audioId);
+      if (bundled && bundled.audioUrl) {
+        return bundled.audioUrl;
+      }
+      // 2. Check user imported audio in IndexedDB
+      const imports = await dbService.getAllImportedAudio();
+      const rec = imports.find((i) => i.id === audioId);
+      if (rec && rec.blob) {
+        return rec.blob;
+      }
+      return null;
+    });
+
     loadAllData();
   }, [loadAllData]);
 
@@ -80,11 +99,15 @@ function MainApp() {
   };
 
   // Delete user imported audio
-  const handleDeleteImported = async (id: string) => {
-    if (confirm(language === 'id' ? 'Hapus berkas rekaman ini dari penyimpanan lokal?' : 'Delete this audio recording from local storage?')) {
-      await dbService.deleteImportedAudio(id);
-      loadAllData();
-    }
+  const handleDeleteImported = (id: string) => {
+    setAudioToDeleteId(id);
+  };
+
+  const confirmDeleteImported = async () => {
+    if (!audioToDeleteId) return;
+    await dbService.deleteImportedAudio(audioToDeleteId);
+    setAudioToDeleteId(null);
+    loadAllData();
   };
 
   // Save new cat profile
@@ -205,6 +228,22 @@ function MainApp() {
       <AudioInfoModal
         item={infoModalItem}
         onClose={() => setInfoModalItem(null)}
+      />
+
+      {/* Delete Imported Audio Confirmation */}
+      <ConfirmModal
+        isOpen={!!audioToDeleteId}
+        title={language === 'id' ? 'Hapus Rekaman Audio' : 'Delete Audio Recording'}
+        message={
+          language === 'id'
+            ? 'Hapus berkas rekaman ini dari penyimpanan lokal peramban Anda?'
+            : 'Delete this audio recording from your browser local storage?'
+        }
+        confirmText={language === 'id' ? 'Hapus' : 'Delete'}
+        cancelText={language === 'id' ? 'Batal' : 'Cancel'}
+        isDanger={true}
+        onConfirm={confirmDeleteImported}
+        onCancel={() => setAudioToDeleteId(null)}
       />
     </div>
   );

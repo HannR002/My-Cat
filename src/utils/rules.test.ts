@@ -7,6 +7,10 @@ import {
   evaluateInteractionWelfare,
   calculateSessionStats,
   formatAudioDuration,
+  isSoundEligibleForInteraction,
+  validateBackupPayload,
+  blobToDataUrl,
+  dataUrlToBlob,
 } from './rules.ts';
 import type { AudioItem, InteractionSession } from '../types/index.ts';
 
@@ -208,5 +212,138 @@ test('BUNDLED_AUDIO integrity: all files exist on disk with valid size and durat
       assert.ok(item.safetyWarning?.id.includes('PERINGATAN'), 'Warning must contain Indonesian warning text');
     }
   }
+});
+
+test('isSoundEligibleForInteraction strictly allows authentic non-defensive cat sounds only', () => {
+  // Friendly authentic real sound -> eligible
+  const eligibleRealSound: AudioItem = {
+    id: 's_real',
+    title: 'Purr Meow',
+    category: 'call',
+    description: { id: 'Meow ramah', en: 'Friendly meow' },
+    educationalNote: { id: '', en: '' },
+    audioType: 'real',
+    duration: 2.5,
+    audioUrl: '/audio/real/call_crisp.mp3',
+    source: 'Wikimedia',
+    artist: 'Author',
+    license: 'CC BY-SA 3.0',
+    hasFile: true,
+  };
+  assert.equal(isSoundEligibleForInteraction(eligibleRealSound), true);
+
+  // Defensive sound -> excluded
+  assert.equal(
+    isSoundEligibleForInteraction({ ...eligibleRealSound, isDefensive: true }),
+    false,
+    'Defensive sound must be excluded'
+  );
+
+  // Warning category -> excluded
+  assert.equal(
+    isSoundEligibleForInteraction({ ...eligibleRealSound, category: 'warning' }),
+    false,
+    'Warning category must be excluded'
+  );
+
+  // Procedural synth -> excluded
+  assert.equal(
+    isSoundEligibleForInteraction({ ...eligibleRealSound, audioType: 'procedural_synth' }),
+    false,
+    'Procedural synth must be excluded'
+  );
+
+  // AI audio -> excluded
+  assert.equal(
+    isSoundEligibleForInteraction({ ...eligibleRealSound, audioType: 'ai' }),
+    false,
+    'AI sound must be excluded'
+  );
+
+  // AI fun category -> excluded
+  assert.equal(
+    isSoundEligibleForInteraction({ ...eligibleRealSound, category: 'ai_fun' }),
+    false,
+    'AI fun category must be excluded'
+  );
+
+  // User imported audio (unverified) -> excluded
+  assert.equal(
+    isSoundEligibleForInteraction({ ...eligibleRealSound, audioType: 'user_imported' }),
+    false,
+    'Unverified imported audio must be excluded'
+  );
+
+  // Missing file -> excluded
+  assert.equal(
+    isSoundEligibleForInteraction({ ...eligibleRealSound, hasFile: false }),
+    false,
+    'Missing file must be excluded'
+  );
+});
+
+test('validateBackupPayload distinguishes valid metadata and full backups, and rejects corrupted data', () => {
+  // Valid metadata backup
+  const validMetadataBackup = {
+    app: 'My Cat',
+    version: '1.2.0',
+    schemaVersion: 2,
+    backupType: 'metadata_only',
+    exportedAt: '2026-10-18T12:00:00.000Z',
+    cats: [{ id: 'c1', name: 'Milo', avatar: 'cat_orange', ageYears: 2, breed: 'Domestic', gender: 'male', notes: '', createdAt: 1, updatedAt: 1 }],
+    interactions: [{ id: 'i1', catId: 'c1', catName: 'Milo', soundId: 's1', soundTitle: 'Meow', timestamp: 1, reaction: 'attentive' }],
+    favorites: ['s1'],
+    importedAudioCount: 0,
+    importedAudioMetadata: [],
+  };
+  const metaRes = validateBackupPayload(validMetadataBackup);
+  assert.equal(metaRes.isValid, true);
+  assert.equal(metaRes.isFullBackup, false);
+  assert.equal(metaRes.summary?.catsCount, 1);
+  assert.equal(metaRes.summary?.interactionsCount, 1);
+  assert.equal(metaRes.summary?.favoritesCount, 1);
+
+  // Valid full backup
+  const validFullBackup = {
+    ...validMetadataBackup,
+    backupType: 'full_backup',
+    importedAudio: [
+      {
+        id: 'rec_1',
+        title: 'Meow Saya',
+        category: 'call',
+        audioType: 'user_imported',
+        dataUrl: 'data:audio/mpeg;base64,AAAA',
+      },
+    ],
+  };
+  const fullRes = validateBackupPayload(validFullBackup);
+  assert.equal(fullRes.isValid, true);
+  assert.equal(fullRes.isFullBackup, true);
+  assert.equal(fullRes.summary?.importedAudioCount, 1);
+
+  // Invalid: not an object
+  assert.equal(validateBackupPayload(null).isValid, false);
+  assert.equal(validateBackupPayload('string').isValid, false);
+
+  // Invalid: wrong app name
+  assert.equal(validateBackupPayload({ app: 'Other App', cats: [], interactions: [], favorites: [] }).isValid, false);
+
+  // Invalid: missing cats array
+  assert.equal(validateBackupPayload({ app: 'My Cat', cats: 'not an array', interactions: [], favorites: [] }).isValid, false);
+});
+
+test('blobToDataUrl and dataUrlToBlob roundtrip conversion preserves bytes and mime', async () => {
+  const originalContent = 'ID3-Test-Audio-Binary-Data-12345';
+  const originalBlob = new Blob([originalContent], { type: 'audio/mpeg' });
+
+  const dataUrl = await blobToDataUrl(originalBlob);
+  assert.ok(dataUrl.startsWith('data:audio/mpeg;base64,'));
+
+  const restoredBlob = dataUrlToBlob(dataUrl);
+  assert.equal(restoredBlob.type, 'audio/mpeg');
+
+  const restoredText = await restoredBlob.text();
+  assert.equal(restoredText, originalContent);
 });
 

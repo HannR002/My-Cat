@@ -152,3 +152,111 @@ export function formatAudioDuration(seconds: number): string {
   const s = Math.floor(seconds % 60);
   return `${m}:${s < 10 ? '0' : ''}${s}`;
 }
+
+/**
+ * Strict animal welfare eligibility check for sounds used in guided cat interactions.
+ * Disallows defensive, warning, procedural synth, AI fun, and unverified audio.
+ */
+export function isSoundEligibleForInteraction(sound: AudioItem): boolean {
+  if (!sound || !sound.hasFile) return false;
+  if (sound.isDefensive === true || sound.category === 'warning') return false;
+  if (
+    sound.audioType === 'procedural_synth' ||
+    sound.audioType === 'ai' ||
+    sound.category === 'ai_fun'
+  ) {
+    return false;
+  }
+  // Must be verified authentic real cat recording with valid url
+  if (sound.audioType !== 'real') return false;
+  if (!sound.audioUrl) return false;
+  return true;
+}
+
+/**
+ * Converts a Blob to a base64 Data URL (supports both browser and Node.js)
+ */
+export async function blobToDataUrl(blob: Blob): Promise<string> {
+  if (typeof FileReader !== 'undefined') {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  }
+  const arrayBuf = await blob.arrayBuffer();
+  const buffer = Buffer.from(arrayBuf);
+  const mime = blob.type || 'audio/mpeg';
+  return `data:${mime};base64,${buffer.toString('base64')}`;
+}
+
+/**
+ * Converts a base64 Data URL back to a Blob (supports both browser and Node.js)
+ */
+export function dataUrlToBlob(dataUrl: string): Blob {
+  const parts = dataUrl.split(',');
+  const mime = parts[0]?.match(/:(.*?);/)?.[1] || 'audio/mpeg';
+  const base64Str = parts[1] || '';
+  if (typeof Buffer !== 'undefined') {
+    const buf = Buffer.from(base64Str, 'base64');
+    return new Blob([buf], { type: mime });
+  }
+  const binaryStr = atob(base64Str);
+  const bytes = new Uint8Array(binaryStr.length);
+  for (let i = 0; i < binaryStr.length; i++) {
+    bytes[i] = binaryStr.charCodeAt(i);
+  }
+  return new Blob([bytes], { type: mime });
+}
+
+/**
+ * Validates backup JSON structure and determines if it is a full or metadata-only backup
+ */
+export function validateBackupPayload(data: unknown): {
+  isValid: boolean;
+  error?: string;
+  isFullBackup: boolean;
+  summary?: {
+    catsCount: number;
+    interactionsCount: number;
+    favoritesCount: number;
+    importedAudioCount: number;
+  };
+} {
+  if (!data || typeof data !== 'object') {
+    return { isValid: false, error: 'Format berkas tidak valid: data bukan objek JSON.', isFullBackup: false };
+  }
+  const d = data as Record<string, unknown>;
+  if (d.app !== 'My Cat') {
+    return { isValid: false, error: 'Berkas cadangan tidak dikenali (bukan cadangan aplikasi My Cat).', isFullBackup: false };
+  }
+  if (!Array.isArray(d.cats)) {
+    return { isValid: false, error: 'Format data profil kucing (cats) tidak valid atau hilang.', isFullBackup: false };
+  }
+  if (!Array.isArray(d.interactions)) {
+    return { isValid: false, error: 'Format data riwayat interaksi (interactions) tidak valid atau hilang.', isFullBackup: false };
+  }
+  if (!Array.isArray(d.favorites)) {
+    return { isValid: false, error: 'Format data favorit (favorites) tidak valid atau hilang.', isFullBackup: false };
+  }
+
+  const isFullBackup = d.backupType === 'full_backup' && Array.isArray(d.importedAudio);
+  const audioCount = isFullBackup
+    ? (d.importedAudio as unknown[]).length
+    : typeof d.importedAudioCount === 'number'
+    ? d.importedAudioCount
+    : 0;
+
+  return {
+    isValid: true,
+    isFullBackup,
+    summary: {
+      catsCount: (d.cats as unknown[]).length,
+      interactionsCount: (d.interactions as unknown[]).length,
+      favoritesCount: (d.favorites as unknown[]).length,
+      importedAudioCount: audioCount,
+    },
+  };
+}
+

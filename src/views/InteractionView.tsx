@@ -4,6 +4,7 @@ import { AudioItem, CatProfile, InteractionSession } from '../types';
 import { useLanguage } from '../context/LanguageContext';
 import { InteractionWizard } from '../components/interaction/InteractionWizard';
 import { InteractionHistoryList } from '../components/interaction/InteractionHistoryList';
+import { isSoundEligibleForInteraction } from '../utils/rules';
 
 interface InteractionViewProps {
   cats: CatProfile[];
@@ -26,8 +27,8 @@ export const InteractionView: React.FC<InteractionViewProps> = ({
   const [activeSubTab, setActiveSubTab] = useState<'wizard' | 'history'>(initialTab);
   const [targetCatForHistory, setTargetCatForHistory] = useState<string | undefined>(undefined);
 
-  // Filter out threatening / defensive sounds for feline welfare
-  const eligibleSounds = catalog.filter((s) => !s.isDefensive);
+  // Filter out threatening, defensive, and synthetic sounds for feline welfare
+  const eligibleSounds = catalog.filter(isSoundEligibleForInteraction);
 
   return (
     <div className="space-y-5 pb-24 animate-fadeIn">

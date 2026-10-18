@@ -3,6 +3,7 @@ import { Trash2, Calendar, Cat, Filter, Info, AlertTriangle } from 'lucide-react
 import { InteractionSession, CatProfile, CatReaction } from '../../types';
 import { useLanguage } from '../../context/LanguageContext';
 import { dbService } from '../../services/db';
+import { ConfirmModal } from '../common/ConfirmModal';
 
 interface InteractionHistoryListProps {
   sessions: InteractionSession[];
@@ -19,16 +20,17 @@ export const InteractionHistoryList: React.FC<InteractionHistoryListProps> = ({
 }) => {
   const { language, t } = useLanguage();
   const [filterCatId, setFilterCatId] = useState<string>(initialCatId || 'all');
+  const [sessionToDeleteId, setSessionToDeleteId] = useState<string | null>(null);
 
   const filteredSessions = sessions.filter((s) =>
     filterCatId === 'all' ? true : s.catId === filterCatId
   );
 
-  const handleDelete = async (id: string) => {
-    if (confirm(t.deleteSessionConfirm)) {
-      await dbService.deleteInteraction(id);
-      onRefresh();
-    }
+  const confirmDeleteSession = async () => {
+    if (!sessionToDeleteId) return;
+    await dbService.deleteInteraction(sessionToDeleteId);
+    setSessionToDeleteId(null);
+    onRefresh();
   };
 
   const getReactionLabel = (rx: CatReaction) => {
@@ -153,7 +155,7 @@ export const InteractionHistoryList: React.FC<InteractionHistoryListProps> = ({
 
                 <div className="flex items-center justify-end flex-shrink-0">
                   <button
-                    onClick={() => handleDelete(item.id)}
+                    onClick={() => setSessionToDeleteId(item.id)}
                     className="p-2 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition"
                     aria-label="Hapus catatan sesi ini"
                     title={t.deleteBtn}
@@ -166,6 +168,17 @@ export const InteractionHistoryList: React.FC<InteractionHistoryListProps> = ({
           })}
         </div>
       )}
+
+      <ConfirmModal
+        isOpen={!!sessionToDeleteId}
+        title={language === 'id' ? 'Hapus Sesi Interaksi' : 'Delete Interaction Session'}
+        message={t.deleteSessionConfirm}
+        confirmText={language === 'id' ? 'Hapus' : 'Delete'}
+        cancelText={language === 'id' ? 'Batal' : 'Cancel'}
+        isDanger={true}
+        onConfirm={confirmDeleteSession}
+        onCancel={() => setSessionToDeleteId(null)}
+      />
     </div>
   );
 };

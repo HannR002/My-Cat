@@ -3,6 +3,7 @@ import { Plus, Edit2, Trash2, Cat, HeartHandshake, Calendar } from 'lucide-react
 import { CatProfile, InteractionSession } from '../types';
 import { useLanguage } from '../context/LanguageContext';
 import { CatProfileModal } from '../components/profile/CatProfileModal';
+import { ConfirmModal } from '../components/common/ConfirmModal';
 import { dbService } from '../services/db';
 
 interface MyCatsViewProps {
@@ -21,17 +22,18 @@ export const MyCatsView: React.FC<MyCatsViewProps> = ({
   const { language, t } = useLanguage();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [catToEdit, setCatToEdit] = useState<CatProfile | null>(null);
+  const [catToDelete, setCatToDelete] = useState<{ id: string; name: string } | null>(null);
 
   const handleSaveCat = async (cat: CatProfile) => {
     await dbService.saveCat(cat);
     onRefreshCats();
   };
 
-  const handleDeleteCat = async (id: string, name: string) => {
-    if (confirm(`${t.deleteCatConfirm} (${name})`)) {
-      await dbService.deleteCat(id);
-      onRefreshCats();
-    }
+  const confirmDeleteCat = async () => {
+    if (!catToDelete) return;
+    await dbService.deleteCat(catToDelete.id);
+    setCatToDelete(null);
+    onRefreshCats();
   };
 
   const getCatAvatarElement = (avatar: string) => {
@@ -89,15 +91,26 @@ export const MyCatsView: React.FC<MyCatsViewProps> = ({
         <div className="p-8 text-center bg-white rounded-3xl border border-dashed border-gray-200 space-y-3">
           <Cat className="w-10 h-10 text-orange-400 mx-auto" />
           <h4 className="text-sm font-bold text-gray-800">{t.noCatsYet}</h4>
-          <button
-            onClick={() => {
-              setCatToEdit(null);
-              setIsModalOpen(true);
-            }}
-            className="px-4 py-2 rounded-xl bg-orange-600 text-white text-xs font-bold hover:bg-orange-700 transition"
-          >
-            {t.addNewCatPrompt}
-          </button>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-2 pt-1">
+            <button
+              onClick={() => {
+                setCatToEdit(null);
+                setIsModalOpen(true);
+              }}
+              className="px-4 py-2 rounded-xl bg-orange-600 text-white text-xs font-bold hover:bg-orange-700 transition"
+            >
+              {t.addNewCatPrompt}
+            </button>
+            <button
+              onClick={async () => {
+                await dbService.addDemoCat();
+                onRefreshCats();
+              }}
+              className="px-4 py-2 rounded-xl bg-orange-50 hover:bg-orange-100 text-orange-700 border border-orange-200 text-xs font-semibold transition"
+            >
+              {language === 'id' ? '+ Tambahkan Contoh Milo (Opsional)' : '+ Add Sample Milo (Optional)'}
+            </button>
+          </div>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
@@ -128,7 +141,7 @@ export const MyCatsView: React.FC<MyCatsViewProps> = ({
                           <Edit2 className="w-3.5 h-3.5" />
                         </button>
                         <button
-                          onClick={() => handleDeleteCat(cat.id, cat.name)}
+                          onClick={() => setCatToDelete({ id: cat.id, name: cat.name })}
                           className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
                           aria-label={t.deleteCat}
                           title={t.deleteCat}
@@ -184,6 +197,17 @@ export const MyCatsView: React.FC<MyCatsViewProps> = ({
         onClose={() => setIsModalOpen(false)}
         onSave={handleSaveCat}
         catToEdit={catToEdit}
+      />
+
+      <ConfirmModal
+        isOpen={!!catToDelete}
+        title={t.deleteCat}
+        message={`${t.deleteCatConfirm} (${catToDelete?.name || ''})`}
+        confirmText={language === 'id' ? 'Hapus' : 'Delete'}
+        cancelText={language === 'id' ? 'Batal' : 'Cancel'}
+        isDanger={true}
+        onConfirm={confirmDeleteCat}
+        onCancel={() => setCatToDelete(null)}
       />
     </div>
   );

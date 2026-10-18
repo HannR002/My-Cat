@@ -94,3 +94,60 @@ export interface UserImportedAudioRecord {
   blob: Blob;
   createdAt: number;
 }
+
+export interface MetadataBackupPayload {
+  app: 'My Cat';
+  version: string;
+  schemaVersion: 1 | 2;
+  backupType: 'metadata_only';
+  exportedAt: string;
+  cats: CatProfile[];
+  interactions: InteractionSession[];
+  favorites: string[];
+  settings?: AppSettings;
+  importedAudioCount: number;
+  importedAudioMetadata: Array<{
+    id: string;
+    title: string;
+    category: AudioCategory;
+    audioType: 'user_imported' | 'ai';
+    artist: string;
+    license: string;
+    createdAt: number;
+  }>;
+}
+
+export interface FullBackupPayload {
+  app: 'My Cat';
+  version: string;
+  schemaVersion: 2;
+  backupType: 'full_backup';
+  exportedAt: string;
+  cats: CatProfile[];
+  interactions: InteractionSession[];
+  favorites: string[];
+  settings?: AppSettings;
+  importedAudio: Array<{
+    id: string;
+    title: string;
+    category: AudioCategory;
+    description: string;
+    audioType: 'user_imported' | 'ai';
+    duration: number;
+    artist: string;
+    source: string;
+    license: string;
+    mimeType: string;
+    createdAt: number;
+    dataUrl: string; // Base64 data URL
+  }>;
+}
+
+export type AnyBackupPayload = MetadataBackupPayload | FullBackupPayload;
+
+export interface RestoreSummary {
+  importedCats: number;
+  importedInteractions: number;
+  importedFavs: number;
+  importedAudio: number;
+}
