@@ -1,0 +1,6 @@
+{
+  "name": "My Cat",
+  "description": "Connect, Play & Understand — Suara kucing asli, pelacak interaksi, akademi edukasi feline, dan soundboard interaktif.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
