@@ -47,6 +47,23 @@ export const InteractionWizard: React.FC<InteractionWizardProps> = ({
   const selectedCat = cats.find((c) => c.id === selectedCatId) || cats[0];
   const selectedSound = eligibleSounds.find((s) => s.id === selectedSoundId) || eligibleSounds[0];
 
+  const executeWizardPlay = async () => {
+    if (!selectedSound) return;
+    if (selectedSound.audioType === 'user_imported') {
+      try {
+        const imports = await dbService.getAllImportedAudio();
+        const rec = imports.find((i) => i.id === selectedSound.id);
+        if (rec && rec.blob) {
+          play(selectedSound.id, rec.blob);
+          return;
+        }
+      } catch (e) {
+        console.error('Failed to load imported audio blob in wizard:', e);
+      }
+    }
+    play(selectedSound.id, selectedSound.audioUrl);
+  };
+
   const reactionsList: { id: CatReaction; label: string; icon: string; isDistress?: boolean }[] = [
     { id: 'approaching', label: t.reactionApproaching, icon: '🐾' },
     { id: 'attentive', label: t.reactionAttentive, icon: '👀' },
@@ -299,7 +316,7 @@ export const InteractionWizard: React.FC<InteractionWizardProps> = ({
                 onClick={() =>
                   currentAudioId === selectedSound?.id && isPlaying
                     ? pause()
-                    : play(selectedSound.id, selectedSound.audioUrl)
+                    : executeWizardPlay()
                 }
                 className="w-12 h-12 rounded-2xl bg-orange-600 hover:bg-orange-700 text-white flex items-center justify-center shadow-md shadow-orange-600/20 active:scale-95 transition"
                 aria-label="Putar Suara Interaksi"

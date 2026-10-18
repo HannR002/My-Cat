@@ -8,7 +8,7 @@ export type AudioCategory =
   | 'warning'          // G. Marah & Peringatan
   | 'ai_fun';          // My Cat Fun — Suara AI
 
-export type AudioType = 'real' | 'ai' | 'user_imported';
+export type AudioType = 'real' | 'ai' | 'procedural_synth' | 'user_imported';
 
 export interface AudioItem {
   id: string;

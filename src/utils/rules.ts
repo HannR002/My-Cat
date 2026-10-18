@@ -15,7 +15,7 @@ export function filterAudioCatalog(
     }
     if (type !== 'all') {
       if (type === 'real' && item.audioType !== 'real') return false;
-      if (type === 'ai' && item.audioType !== 'ai') return false;
+      if (type === 'ai' && item.audioType !== 'ai' && item.audioType !== 'procedural_synth') return false;
       if (type === 'imported' && item.audioType !== 'user_imported') return false;
     }
     if (query.trim()) {

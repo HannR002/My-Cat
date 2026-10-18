@@ -9,7 +9,7 @@ interface AudioPlayerBarProps {
 }
 
 export const AudioPlayerBar: React.FC<AudioPlayerBarProps> = ({ catalog }) => {
-  const { currentAudioId, isPlaying, currentTime, duration, play, pause, stop } =
+  const { currentAudioId, isPlaying, isLoading, error, currentTime, duration, play, resume, pause, stop } =
     useAudioPlayer();
   const { t, language } = useLanguage();
 
@@ -32,11 +32,14 @@ export const AudioPlayerBar: React.FC<AudioPlayerBarProps> = ({ catalog }) => {
       <div className="max-w-md mx-auto bg-gray-900/95 backdrop-blur-md text-white rounded-2xl p-3 shadow-xl border border-gray-800 pointer-events-auto flex items-center justify-between gap-3 animate-slideUp">
         {/* Play/Pause */}
         <button
-          onClick={() => (isPlaying ? pause() : play(currentItem.id, currentItem.audioUrl))}
+          onClick={() => (isPlaying ? pause() : resume())}
+          disabled={isLoading}
           className="w-10 h-10 rounded-xl bg-orange-600 hover:bg-orange-700 text-white flex items-center justify-center flex-shrink-0 transition active:scale-95 shadow-sm"
           aria-label={isPlaying ? 'Pause' : 'Play'}
         >
-          {isPlaying ? (
+          {isLoading ? (
+            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+          ) : isPlaying ? (
             <Pause className="w-4 h-4 fill-white stroke-none" />
           ) : (
             <Play className="w-4 h-4 fill-white stroke-none ml-0.5" />
@@ -49,15 +52,25 @@ export const AudioPlayerBar: React.FC<AudioPlayerBarProps> = ({ catalog }) => {
             <h5 className="text-xs font-bold truncate text-white">
               {currentItem.title}
             </h5>
-            <span className="text-[10px] text-gray-400 font-mono flex-shrink-0">
-              {formatTime(currentTime)} / {formatTime(duration || currentItem.duration)}
+            <span className="text-[10px] font-mono flex-shrink-0">
+              {error ? (
+                <span className="text-rose-400 font-sans font-bold">
+                  {language === 'id' ? 'Gagal memuat' : 'Load failed'}
+                </span>
+              ) : (
+                <span className="text-gray-400">
+                  {formatTime(currentTime)} / {formatTime(duration || currentItem.duration)}
+                </span>
+              )}
             </span>
           </div>
 
           <div className="w-full h-1 bg-gray-700 rounded-full overflow-hidden">
             <div
-              className="h-full bg-orange-500 rounded-full transition-all duration-100"
-              style={{ width: `${progressPercent}%` }}
+              className={`h-full rounded-full transition-all duration-100 ${
+                error ? 'bg-rose-500' : 'bg-orange-500'
+              }`}
+              style={{ width: error ? '100%' : `${progressPercent}%` }}
             />
           </div>
         </div>

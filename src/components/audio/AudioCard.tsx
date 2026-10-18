@@ -39,6 +39,7 @@ export const AudioCard: React.FC<AudioCardProps> = ({
     isLoading,
     currentTime,
     duration,
+    error,
     play,
     stop,
     seek,
@@ -88,7 +89,7 @@ export const AudioCard: React.FC<AudioCardProps> = ({
             ? 'border-orange-400 ring-2 ring-orange-200'
             : item.isDefensive
             ? 'border-rose-200 bg-rose-50/30'
-            : item.audioType === 'ai'
+            : item.audioType === 'ai' || item.audioType === 'procedural_synth'
             ? 'border-purple-200 bg-purple-50/20'
             : 'border-orange-100 hover:border-orange-300'
         }`}
@@ -111,13 +112,15 @@ export const AudioCard: React.FC<AudioCardProps> = ({
               className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider border ${
                 item.audioType === 'real'
                   ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                  : item.audioType === 'ai'
+                  : item.audioType === 'procedural_synth' || item.audioType === 'ai'
                   ? 'bg-purple-100 text-purple-800 border-purple-200'
                   : 'bg-blue-50 text-blue-700 border-blue-200'
               }`}
             >
               {item.audioType === 'real'
                 ? t.realRecordingBadge
+                : item.audioType === 'procedural_synth'
+                ? (language === 'id' ? 'Sintetis Prosedural' : 'Procedural Synth')
                 : item.audioType === 'ai'
                 ? t.aiSyntheticBadge
                 : t.userImportedBadge}
@@ -191,7 +194,7 @@ export const AudioCard: React.FC<AudioCardProps> = ({
               className={`w-11 h-11 rounded-2xl flex items-center justify-center font-bold text-white shadow-sm transition active:scale-90 ${
                 item.isDefensive
                   ? 'bg-rose-600 hover:bg-rose-700 shadow-rose-600/20'
-                  : item.audioType === 'ai'
+                  : item.audioType === 'ai' || item.audioType === 'procedural_synth'
                   ? 'bg-purple-600 hover:bg-purple-700 shadow-purple-600/20'
                   : 'bg-orange-600 hover:bg-orange-700 shadow-orange-600/20'
               }`}
@@ -238,8 +241,16 @@ export const AudioCard: React.FC<AudioCardProps> = ({
           </div>
         </div>
 
+        {/* Error message if playback failed */}
+        {isCurrent && error && (
+          <div className="mt-2.5 p-2 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-[11px] flex items-center gap-1.5">
+            <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 text-rose-600" />
+            <span className="font-medium">{error}</span>
+          </div>
+        )}
+
         {/* Interactive scrubber if active */}
-        {isCurrent && (
+        {isCurrent && !error && (
           <div className="mt-2.5 pt-1">
             <input
               type="range"

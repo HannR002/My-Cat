@@ -12,6 +12,7 @@ export function useAudioPlayer() {
   return {
     ...state,
     play: (audioId: string, audioSource: string | Blob) => audioPlayer.play(audioId, audioSource),
+    resume: () => audioPlayer.resume(),
     pause: () => audioPlayer.pause(),
     stop: () => audioPlayer.stop(),
     seek: (seconds: number) => audioPlayer.seek(seconds),

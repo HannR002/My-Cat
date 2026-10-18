@@ -166,3 +166,47 @@ test('formatAudioDuration formats seconds into m:ss', () => {
   assert.equal(formatAudioDuration(65), '1:05');
   assert.equal(formatAudioDuration(120), '2:00');
 });
+
+test('BUNDLED_AUDIO integrity: all files exist on disk with valid size and duration', async () => {
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const { BUNDLED_AUDIO } = await import('../data/bundledAudio.ts');
+
+  assert.ok(BUNDLED_AUDIO.length > 0, 'Catalog should not be empty');
+
+  const seenIds = new Set<string>();
+
+  for (const item of BUNDLED_AUDIO) {
+    // Unique ID
+    assert.ok(!seenIds.has(item.id), `Duplicate ID found: ${item.id}`);
+    seenIds.add(item.id);
+
+    // Metadata completeness
+    assert.ok(item.title.trim().length > 0, `Title must not be empty for ${item.id}`);
+    assert.ok(item.description.id.trim().length > 0, `Indonesian description missing for ${item.id}`);
+    assert.ok(item.description.en.trim().length > 0, `English description missing for ${item.id}`);
+    assert.ok(item.artist.trim().length > 0, `Artist missing for ${item.id}`);
+    assert.ok(item.license.trim().length > 0, `License missing for ${item.id}`);
+
+    // GFDL exclusion verification
+    assert.ok(
+      !item.license.includes('GFDL'),
+      `GFDL audio must not be bundled without distribution resolution (${item.id})`
+    );
+
+    // File existence on disk
+    if (item.audioUrl.startsWith('/')) {
+      const diskPath = path.join(process.cwd(), 'public', item.audioUrl);
+      assert.ok(fs.existsSync(diskPath), `Audio file does not exist on disk: ${diskPath}`);
+      const stat = fs.statSync(diskPath);
+      assert.ok(stat.size > 1000, `Audio file is suspiciously small (<1KB): ${diskPath}`);
+    }
+
+    // Defensive warning requirement
+    if (item.isDefensive) {
+      assert.ok(item.safetyWarning, `Defensive audio ${item.id} must have a safetyWarning`);
+      assert.ok(item.safetyWarning?.id.includes('PERINGATAN'), 'Warning must contain Indonesian warning text');
+    }
+  }
+});
+

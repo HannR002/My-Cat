@@ -77,7 +77,7 @@ export const SoundLibraryView: React.FC<SoundLibraryViewProps> = ({
     // Type filter
     if (selectedType !== 'all') {
       if (selectedType === 'real' && item.audioType !== 'real') return false;
-      if (selectedType === 'ai' && item.audioType !== 'ai') return false;
+      if (selectedType === 'ai' && item.audioType !== 'ai' && item.audioType !== 'procedural_synth') return false;
       if (selectedType === 'imported' && item.audioType !== 'user_imported') return false;
     }
     // Search query

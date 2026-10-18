@@ -38,13 +38,15 @@ export const AudioInfoModal: React.FC<AudioInfoModalProps> = ({ item, onClose })
             className={`px-2.5 py-1 rounded-full text-xs font-bold border ${
               item.audioType === 'real'
                 ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                : item.audioType === 'ai'
+                : item.audioType === 'procedural_synth' || item.audioType === 'ai'
                 ? 'bg-purple-50 text-purple-700 border-purple-200'
                 : 'bg-blue-50 text-blue-700 border-blue-200'
             }`}
           >
             {item.audioType === 'real'
               ? t.realRecordingBadge
+              : item.audioType === 'procedural_synth'
+              ? (language === 'id' ? 'Sintetis Prosedural' : 'Procedural Synth')
               : item.audioType === 'ai'
               ? t.aiSyntheticBadge
               : t.userImportedBadge}

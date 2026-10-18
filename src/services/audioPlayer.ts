@@ -151,6 +151,17 @@ class AudioPlayerService {
     }
   }
 
+  public async resume(): Promise<void> {
+    if (this.audioElement && this.audioElement.paused) {
+      try {
+        await this.audioElement.play();
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'Pemutaran dicegah oleh browser.';
+        this.updateState({ error: message, isPlaying: false });
+      }
+    }
+  }
+
   public pause(): void {
     if (this.audioElement && !this.audioElement.paused) {
       this.audioElement.pause();
