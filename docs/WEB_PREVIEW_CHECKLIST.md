@@ -22,8 +22,8 @@ Dokumen ini merupakan panduan evaluasi berbasis bukti (*evidence-based checklist
 
 - [x] **Singleton Playback**: Memutar audio baru otomatis menghentikan audio yang sedang berputar sebelumnya.
 - [x] **Pemisahan Sumber Audio**: `audioPlayer.setSourceResolver` mampu memutar file statis bawaan (`/audio/*`) dan rekaman lokal IndexedDB (`Blob`) secara transparan.
-- [x] **Peringatan Audio Defensif**: Suara desisan (`warning_growl_hiss.mp3`) menampilkan modal peringatan stres kucing sebelum diizinkan untuk didengarkan.
-- [x] **Integritas Lisensi Audio**: Seluruh 15 audio bawaan memiliki atribusi pengarang, sumber Wikimedia Commons/Freesound, dan lisensi legal (CC0, CC BY 4.0, CC BY-SA 3.0, Public Domain). File berlisensi GFDL telah dibersihkan.
+- [x] **Peringatan Audio Defensif**: Suara desisan (`warning_defensive_hiss.mp3`) menampilkan modal peringatan stres kucing sebelum diizinkan untuk didengarkan.
+- [x] **Integritas Lisensi Audio**: Seluruh 13 audio bawaan (10 rekaman vokal kucing asli di `public/audio/real/` dan 3 efek sintetis prosedural di `public/audio/ai/`) memiliki atribusi pengarang, sumber Wikimedia Commons/Freesound, dan lisensi legal (CC0, CC BY 4.0, CC BY-SA 3.0, Public Domain). Bebas dari lisensi GFDL.
 - [x] **Volume Mobile Notice**: Notifikasi transparan ditampilkan bahwa volume suara pada perangkat mobile dikontrol melalui tombol fisik perangkat pengguna.
 
 ---

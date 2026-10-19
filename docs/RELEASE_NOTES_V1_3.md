@@ -1,4 +1,4 @@
-# Catatan Rilis — My Cat V1.3: Web Preview & PWA Validation
+# Catatan Rilis — My Cat V1.3.1: Hostinger Cache Configuration Hotfix & Web Preview
 
 Tanggal Rilis: 19 Oktober 2026  
 Status Rilis: **STABIL — SIAP PRATINJAU WEB (WEB PREVIEW GATE PASSED)**  
@@ -6,52 +6,43 @@ Target Platform: Web Modern (PWA), Android (Chrome / Samsung Internet), Desktop 
 
 ---
 
-## Ringkasan Rilis V1.3
+## Ringkasan Rilis V1.3.1
 
-Rilis **My Cat V1.3** memfokuskan pada pematangan produksi (*production hardening*), validasi PWA luar jaringan (*offline capability*), kesiapan deployment hosting statis Hostinger, dan optimasi tata letak responsif pada perangkat Android layar sempit (360px).
+Rilis **My Cat V1.3.1** merupakan perbaikan konfigurasi hosting (*hosting configuration hotfix*) terfokus menyusul rilis V1.3. Fokus rilis ini adalah mengeliminasi potensi konflik *Cache-Control* pada berkas kontrol Service Worker, mencegah perulangan pengalihan (*redirect loop*) pada SSL Hostinger/reverse-proxy, menegaskan dukungan root subdomain khusus, serta merekonsiliasi inventaris berkas audio bawaan dan dokumentasi persistensi IndexedDB lokal.
 
 ---
 
 ## Pembaruan Utama (*Key Features & Improvements*)
 
-### 1. Kesiapan Deployment Hostinger & SPA Routing (`.htaccess`)
-- Penambahan file produksi `public/.htaccess` yang otomatis disalin ke `dist/.htaccess` saat build produksi.
-- Dilengkapi aturan *mod_rewrite* Apache/LiteSpeed untuk fallback Single Page Application (SPA), pemaksaan HTTPS otomatis, kompresi Gzip/Deflate, serta pengaturan header *Cache-Control* presisi (`no-cache` untuk file manifest/SW dan caching 1 tahun untuk aset ber-hash).
+### 1. Koreksi Tumpang Tindih Aturan Cache-Control (`public/.htaccess`)
+- **Pemisahan Ketat Aset Ber-hash**: Caching 1 tahun (`public, max-age=31536000, immutable`) kini dibatasi secara spesifik hanya untuk aset fingerprinted Vite (`^.+-[A-Za-z0-9_-]{8,}\.(js|css)$`), tidak lagi menggunakan pola umum `\.(css|js)$` yang berisiko menimpa script di root.
+- **Proteksi File Kontrol PWA**: Berkas `index.html`, `sw.js`, `registerSW.js`, `workbox-*.js`, dan `manifest.webmanifest` dievaluasi di urutan akhir dengan `Header set` berkebijakan `no-cache, no-store, must-revalidate` (menjamin pengguna selalu mendapatkan pembaruan aplikasi dan service worker terkini tanpa stale cache).
+- **Aset Statis Bawaan**: File audio dan gambar diberi masa berlaku cache wajar 30 hari (`max-age=2592000`).
 
-### 2. Optimasi Navigasi Mobile 360px
-- Bilah navigasi bawah (*Bottom Navigation Bar*) kini mendukung pelabelan responsif (`shortLabel`): pada layar smartphone di bawah 400px (seperti Samsung Galaxy A03/A04/A05 layar 360px), tab ditampilkan ringkas ("Kucing" dan "Setelan") agar muat tanpa terpotong (*zero truncation/ellipsis*).
-- Pada layar yang lebih lebar (>= 400px, tablet, dan desktop), label otomatis melebar menjadi "Kucing Saya" dan "Pengaturan".
+### 2. Pencegahan HTTPS Redirect Loop
+- Penambahan kondisi ganda pada pengalihan HTTPS (`RewriteCond %{HTTPS} !=on` dan `RewriteCond %{HTTP:X-Forwarded-Proto} !https`). Hal ini mencegah terjadinya *infinite redirect loop* ketika Hostinger SSL atau reverse-proxy (seperti Cloudflare atau LiteSpeed Proxy) menangani enkripsi HTTPS di depan server web.
 
-### 3. Penyelarasan Versi Aplikasi & Badge Header
-- Penyelarasan badge visual di bilah atas aplikasi (*Header*) menjadi `V1.3 PWA`.
-- Penyelarasan string informasi aplikasi di menu Pengaturan dan modul terjemahan bahasa `i18n.ts` menjadi `1.3.0 (Web Preview & PWA)`.
-
-### 4. Pematangan Pengujian Otomatis & Keamanan Basis Data
-- Terverifikasi 20 pengujian unit dan integrasi lulus 100% via `node --test` (menggunakan `fake-indexeddb` untuk pengujian transaksi riil di Node.js).
-- Terverifikasi alur kerja CI Continuous Integration di GitHub Actions (`.github/workflows/ci.yml`) berstatus hijau (*success*) pada run resmi #39218372396.
+### 3. Rekonsiliasi Inventaris Audio & Dokumentasi Persistensi
+- **Inventaris Audio Bawaan**: Ditegaskan secara faktual bahwa aplikasi memuat **13 berkas MP3 bawaan** (10 rekaman vokal kucing asli di `public/audio/real/` + 3 efek suara sintetis prosedural di `public/audio/ai/`), bukan 15 file.
+- **Dokumentasi Persistensi Android**: Diperjelas pada panduan pengujian bahwa data yang dibuat saat offline tetap tersimpan utuh di IndexedDB lokal perangkat pengguna dan tidak disinkronkan secara otomatis ke server cloud atau perangkat lain (arsitektur 100% lokal berbasis privasi).
+- **Dukungan Root Subdomain**: Didokumentasikan bahwa aplikasi siap dideploy pada root domain atau root subdomain khusus (misal: `https://kucing.domainanda.com`).
 
 ---
 
 ## Komparasi Versi
 
-| Komponen | V1.2.0 | V1.2.1 | V1.3.0 (Versi Ini) |
+| Komponen | V1.2.1 | V1.3.0 | V1.3.1 (Versi Ini) |
 | :--- | :--- | :--- | :--- |
-| **PWA Badge** | `V1 PWA` | `V1 PWA` | `V1.3 PWA` |
-| **Audit CI GitHub** | Belum ada CI workflow | CI ditambahkan | CI lulus 100% (`npm ci` + lockfile) |
-| **Navigasi Layar 360px** | Terpotong elipsis | Terpotong elipsis | **Responsif Penuh (Zero Truncation)** |
-| **Hostinger `.htaccess`** | Belum ada | Belum ada | **Tersedia Lengkap (`public/.htaccess`)** |
-| **Pustaka Tes IDB** | 14 tes | 20 tes | **20 tes lengkap + verifikasi browser** |
+| **Aturan Cache .htaccess** | Belum ada | Umum (berpotensi tumpang tindih pada `sw.js`) | **Aman & Non-overlapping (`sw.js` no-cache)** |
+| **HTTPS Redirection** | Belum ada | `RewriteCond %{HTTPS} !=on` | **Anti-Loop (`X-Forwarded-Proto` safe)** |
+| **Inventaris Audio di Docs** | 15 file (estimasi lama) | 15 file | **13 file rekonsiliasi (10 riil + 3 sintetis)** |
+| **Navigasi Layar 360px** | Terpotong elipsis | Responsif `shortLabel` | **Responsif Penuh ("Kucing" & "Setelan")** |
+| **Pustaka Tes IDB** | 20 tes | 20 tes | **20 tes lengkap + PWA build 43 precached** |
 
 ---
 
-## Status Verifikasi Peramban & Mesin Suara
+## Status Verifikasi & Kualitas
 
-- **Pengujian Browser Headless (Playwright CLI)**:
-  - Desktop 1440px: Berhasil diverifikasi.
-  - Tablet 768px: Berhasil diverifikasi.
-  - Large Mobile 430px: Berhasil diverifikasi.
-  - Standard Mobile 390px: Berhasil diverifikasi.
-  - Budget Mobile 360px: Berhasil diverifikasi dengan pelabelan responsif.
-- **Service Worker Precache**: 43 berkas (2,058.93 KiB) ter-cache sempurna secara lokal.
-- **Animal Welfare Check**: Suara desisan pertahanan tetap terkunci di balik modal peringatan stres kucing.
-- **Singleton Audio**: 100% bebas dari tumpang tindih suara.
+- **Node.js Native Test Runner (`node:test`)**: 20 / 20 tes lulus 100%.
+- **TypeScript Compiler (`tsc --noEmit`)**: 0 error.
+- **Vite Production Build**: Sukses, menghasilkan `dist/.htaccess` dengan aturan caching dan HTTPS yang telah diperbaiki.

@@ -61,7 +61,7 @@ Dokumen ini memuat matriks pengujian manual yang dirancang khusus untuk verifika
 | D2 | **Buka Ulang Saat Offline** | Tutup aplikasi PWA dari multitasking Android (*swipe kill*), lalu buka kembali dari homescreen saat Mode Pesawat aktif. | Aplikasi terbuka seketika (*instant launch*) dari Service Worker lokal tanpa pesan "No Internet". | [ ] |
 | D3 | **Putar Audio Bawaan Offline** | Saat Mode Pesawat aktif, buka tab Suara dan putar "Panggilan Ramah" dan "Dengkuran Tenang". | Suara berbunyi normal karena telah ter-precache oleh Service Worker. | [ ] |
 | D4 | **Pencatatan Sesi Offline** | Tambah profil kucing baru ("Chiki") dan catat 1 sesi interaksi di tab Interaksi. | Profil dan riwayat sesi tersimpan ke IndexedDB lokal tanpa memerlukan koneksi jaringan. | [ ] |
-| D5 | **Kembali Online** | Matikan Mode Pesawat (koneksi pulih). | Banner offline otomatis menghilang; data lokal tetap utuh dan tersinkronisasi. | [ ] |
+| D5 | **Kembali Online** | Matikan Mode Pesawat (koneksi pulih). | Banner offline otomatis menghilang; data profil dan riwayat sesi yang dibuat saat offline tetap tersimpan utuh di IndexedDB lokal perangkat pengguna (Catatan arsitektur: Aplikasi ini 100% lokal berbasis IndexedDB, sehingga data tersimpan di perangkat ini dan tidak dikirim/disinkronkan secara otomatis ke server atau perangkat lain). | [ ] |
 
 ---
 

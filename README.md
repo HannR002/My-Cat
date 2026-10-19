@@ -12,7 +12,7 @@
 ## 🌟 Fitur Utama
 
 1. **Pustaka Suara Kucing Terverifikasi (Authentic Soundboard)**:
-   - 15 suara kucing bawaan berkualitas tinggi (12 rekaman vokal asli dan 3 efek sintetis prosedural).
+   - 13 suara kucing bawaan berkualitas tinggi (10 rekaman vokal kucing asli di `public/audio/real/` dan 3 efek audio sintetis prosedural di `public/audio/ai/`).
    - Seluruh file memiliki lisensi publik legal (CC0, CC BY 4.0, CC BY-SA 3.0, Public Domain) dengan atribusi lengkap. Bebas dari lisensi GFDL.
    - Peringatan kesejahteraan hewan (*Animal Welfare Alert*) wajib tampil sebelum memutar suara bernada defensif (desisan/geraman).
 
