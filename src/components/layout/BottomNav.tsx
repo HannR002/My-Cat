@@ -23,15 +23,30 @@ export const BottomNav: React.FC<BottomNavProps> = ({
   onTabChange,
   favoritesCount = 0,
 }) => {
-  const { t } = useLanguage();
+  const { language, t } = useLanguage();
 
-  const navItems: { tab: NavTab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
+  const navItems: {
+    tab: NavTab;
+    label: string;
+    shortLabel?: string;
+    icon: React.ComponentType<{ className?: string }>;
+  }[] = [
     { tab: 'home', label: t.navHome, icon: Home },
     { tab: 'sounds', label: t.navSounds, icon: Music },
     { tab: 'interact', label: t.navInteract, icon: HeartHandshake },
     { tab: 'academy', label: t.navAcademy, icon: BookOpen },
-    { tab: 'mycats', label: t.navMyCats, icon: Cat },
-    { tab: 'settings', label: t.navSettings, icon: Settings },
+    {
+      tab: 'mycats',
+      label: t.navMyCats,
+      shortLabel: language === 'id' ? 'Kucing' : 'Cats',
+      icon: Cat,
+    },
+    {
+      tab: 'settings',
+      label: t.navSettings,
+      shortLabel: language === 'id' ? 'Setelan' : 'Settings',
+      icon: Settings,
+    },
   ];
 
   return (
@@ -63,8 +78,9 @@ export const BottomNav: React.FC<BottomNavProps> = ({
               >
                 <Icon className="w-5 h-5 stroke-[2.2]" />
               </div>
-              <span className="text-[10px] tracking-tight leading-tight mt-0.5 truncate max-w-full">
-                {item.label}
+              <span className="text-[9.5px] sm:text-[10px] tracking-tight leading-tight mt-0.5 truncate max-w-full font-medium">
+                <span className="hidden sm:inline">{item.label}</span>
+                <span className="inline sm:hidden">{item.shortLabel || item.label}</span>
               </span>
               {isActive && (
                 <div className="absolute -top-1 w-6 h-1 rounded-full bg-orange-500" />
