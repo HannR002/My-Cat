@@ -1,4 +1,4 @@
-import {
+import type {
   CatProfile,
   InteractionSession,
   AppSettings,
@@ -366,11 +366,12 @@ export class LocalDatabase {
     return this.exportMetadataOnly();
   }
 
-  // VALIDATE & RESTORE BACKUP
+  // VALIDATE & RESTORE BACKUP (Atomic Single Transaction & Pre-validated)
   async validateAndRestoreBackup(
     backupJsonString: string,
     mode: 'merge' | 'replace' = 'merge'
   ): Promise<RestoreSummary> {
+    // Step 1: Parse JSON
     let parsed: unknown;
     try {
       parsed = JSON.parse(backupJsonString);
@@ -378,112 +379,199 @@ export class LocalDatabase {
       throw new Error('Berkas bukan merupakan format JSON yang valid.');
     }
 
+    // Step 2: Validate Schema & Structure
     const validation = validateBackupPayload(parsed);
     if (!validation.isValid) {
       throw new Error(validation.error || 'Berkas cadangan tidak valid.');
     }
 
     const payload = parsed as AnyBackupPayload;
-    const db = await this.getDB();
+
+    // Step 3: Pre-decode and pre-validate all audio records BEFORE touching the database
+    // This ensures no async base64 decoding occurs inside the active write transaction
+    const preparedAudio: UserImportedAudioRecord[] = [];
+    if (payload.backupType === 'full_backup' && Array.isArray(payload.importedAudio)) {
+      for (const item of payload.importedAudio) {
+        const blob = dataUrlToBlob(item.dataUrl);
+        if (!blob || blob.size === 0) {
+          throw new Error(`Data audio kosong untuk rekaman "${item.title}".`);
+        }
+        preparedAudio.push({
+          id: item.id,
+          title: item.title,
+          category: item.category,
+          description: item.description || '',
+          audioType: item.audioType || 'user_imported',
+          duration: item.duration || 1,
+          artist: item.artist || 'Pengguna',
+          source: item.source || 'Cadangan My Cat',
+          license: item.license || 'Personal Use',
+          mimeType: blob.type || item.mimeType || 'audio/mpeg',
+          blob,
+          createdAt: item.createdAt || Date.now(),
+        });
+      }
+    }
+
+    // Step 4: Pre-query existing records to resolve merge conflicts safely
+    const [existingCats, existingInteractions, existingFavs, existingAudio, currentSettings] =
+      await Promise.all([
+        this.getAllCats(),
+        this.getAllInteractions(),
+        this.getFavoriteIds(),
+        this.getAllImportedAudio(),
+        this.getSettings(),
+      ]);
+
+    let catsToPut: CatProfile[] = [];
+    let interactionsToPut: InteractionSession[] = [];
+    let favsToPut: string[] = [];
+    let audioToPut: UserImportedAudioRecord[] = [];
 
     if (mode === 'replace') {
-      await this.clearAllUserData();
-    }
-
-    let importedCats = 0;
-    let importedInteractions = 0;
-    let importedFavs = 0;
-    let importedAudio = 0;
-
-    // Restore Cats
-    if (Array.isArray(payload.cats) && payload.cats.length > 0) {
-      const tx = db.transaction('cats', 'readwrite');
-      const store = tx.objectStore('cats');
-      for (const cat of payload.cats) {
-        if (cat && cat.id && cat.name) {
-          store.put(cat);
-          importedCats++;
+      catsToPut = payload.cats || [];
+      interactionsToPut = payload.interactions || [];
+      favsToPut = payload.favorites || [];
+      // If full backup: replace audio with prepared audio.
+      // If metadata-only: preserve existing audio (do not delete audio that cannot be restored).
+      audioToPut = payload.backupType === 'full_backup' ? preparedAudio : existingAudio;
+    } else {
+      // Merge mode
+      // Cats: insert new; if duplicate, update only if backup updatedAt is newer or equal
+      const existingCatMap = new Map(existingCats.map((c) => [c.id, c]));
+      for (const cat of payload.cats || []) {
+        const existing = existingCatMap.get(cat.id);
+        if (!existing || (cat.updatedAt || 0) >= (existing.updatedAt || 0)) {
+          catsToPut.push(cat);
         }
       }
-      await new Promise<void>((resolve, reject) => {
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => reject(tx.error);
-      });
-    }
 
-    // Restore Interactions
-    if (Array.isArray(payload.interactions) && payload.interactions.length > 0) {
-      const tx = db.transaction('interactions', 'readwrite');
-      const store = tx.objectStore('interactions');
-      for (const session of payload.interactions) {
-        if (session && session.id && session.catId) {
-          store.put(session);
-          importedInteractions++;
+      // Interactions: avoid duplicate session IDs
+      const existingSessionIds = new Set(existingInteractions.map((s) => s.id));
+      for (const s of payload.interactions || []) {
+        if (!existingSessionIds.has(s.id)) {
+          interactionsToPut.push(s);
         }
       }
-      await new Promise<void>((resolve, reject) => {
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => reject(tx.error);
-      });
-    }
 
-    // Restore Favorites
-    if (Array.isArray(payload.favorites) && payload.favorites.length > 0) {
-      const tx = db.transaction('favorites', 'readwrite');
-      const store = tx.objectStore('favorites');
-      for (const favId of payload.favorites) {
-        if (typeof favId === 'string' && favId) {
-          store.put({ audioId: favId, addedAt: Date.now() });
-          importedFavs++;
+      // Favorites: set union (add only non-existing favorites)
+      const existingFavSet = new Set(existingFavs);
+      for (const favId of payload.favorites || []) {
+        if (!existingFavSet.has(favId)) {
+          favsToPut.push(favId);
         }
       }
-      await new Promise<void>((resolve, reject) => {
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => reject(tx.error);
-      });
-    }
 
-    // Restore Imported Audio (if full backup)
-    if (payload.backupType === 'full_backup' && Array.isArray(payload.importedAudio)) {
-      const tx = db.transaction('imported_audio', 'readwrite');
-      const store = tx.objectStore('imported_audio');
-      for (const item of payload.importedAudio) {
-        if (item && item.id && item.dataUrl) {
-          const blob = dataUrlToBlob(item.dataUrl);
-          const record: UserImportedAudioRecord = {
-            id: item.id,
-            title: item.title,
-            category: item.category,
-            description: item.description || '',
-            audioType: item.audioType || 'user_imported',
-            duration: item.duration || 1,
-            artist: item.artist || 'Pengguna',
-            source: item.source || 'Cadangan My Cat',
-            license: item.license || 'Personal Use',
-            mimeType: item.mimeType || 'audio/mpeg',
-            blob,
-            createdAt: item.createdAt || Date.now(),
-          };
-          store.put(record);
-          importedAudio++;
+      // Imported Audio: add only non-existing audio IDs to protect local recordings
+      const existingAudioIds = new Set(existingAudio.map((a) => a.id));
+      for (const a of preparedAudio) {
+        if (!existingAudioIds.has(a.id)) {
+          audioToPut.push(a);
         }
       }
-      await new Promise<void>((resolve, reject) => {
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => reject(tx.error);
-      });
     }
 
-    // Restore settings if present
-    if (payload.settings) {
-      await this.saveSettings(payload.settings);
+    // Step 5: Execute Single Atomic Transaction
+    const db = await this.getDB();
+    const tx = db.transaction(
+      ['cats', 'interactions', 'favorites', 'imported_audio', 'settings'],
+      'readwrite'
+    );
+
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+
+      tx.onerror = () => {
+        if (!settled) {
+          settled = true;
+          reject(tx.error || new Error('Gagal mengeksekusi transaksi pemulihan basis data.'));
+        }
+      };
+
+      tx.onabort = () => {
+        if (!settled) {
+          settled = true;
+          reject(new Error('Transaksi pemulihan basis data dibatalkan (rollback).'));
+        }
+      };
+
+      tx.oncomplete = () => {
+        settled = true;
+        resolve();
+      };
+
+      try {
+        const catStore = tx.objectStore('cats');
+        const interactionStore = tx.objectStore('interactions');
+        const favStore = tx.objectStore('favorites');
+        const audioStore = tx.objectStore('imported_audio');
+        const settingsStore = tx.objectStore('settings');
+
+        // If replace mode, clear data atomically inside the transaction
+        if (mode === 'replace') {
+          catStore.clear();
+          interactionStore.clear();
+          favStore.clear();
+          // SAFETY: Only clear imported_audio if this backup actually has audio binaries to restore!
+          if (payload.backupType === 'full_backup') {
+            audioStore.clear();
+          }
+        }
+
+        // Put records
+        for (const cat of catsToPut) {
+          catStore.put(cat);
+        }
+        for (const session of interactionsToPut) {
+          interactionStore.put(session);
+        }
+        for (const favId of favsToPut) {
+          favStore.put({ audioId: favId, addedAt: Date.now() });
+        }
+        for (const audio of audioToPut) {
+          audioStore.put(audio);
+        }
+
+        // Settings
+        if (payload.settings) {
+          settingsStore.put({
+            key: 'app_settings',
+            value: { ...currentSettings, ...payload.settings },
+          });
+        }
+      } catch (err) {
+        try {
+          tx.abort();
+        } catch {
+          // already aborted
+        }
+        settled = true;
+        reject(err);
+      }
+    });
+
+    // Step 6: Post-commit Verification Read-back
+    const [finalCats, finalInteractions, finalFavs, finalAudio] = await Promise.all([
+      this.getAllCats(),
+      this.getAllInteractions(),
+      this.getFavoriteIds(),
+      this.getAllImportedAudio(),
+    ]);
+
+    if (mode === 'replace') {
+      if (finalCats.length !== catsToPut.length) {
+        throw new Error('Verifikasi pemulihan gagal: jumlah profil kucing tidak sesuai.');
+      }
+      if (finalInteractions.length !== interactionsToPut.length) {
+        throw new Error('Verifikasi pemulihan gagal: jumlah riwayat interaksi tidak sesuai.');
+      }
     }
 
     return {
-      importedCats,
-      importedInteractions,
-      importedFavs,
-      importedAudio,
+      importedCats: catsToPut.length,
+      importedInteractions: interactionsToPut.length,
+      importedFavs: favsToPut.length,
+      importedAudio: payload.backupType === 'full_backup' ? audioToPut.length : 0,
     };
   }
 

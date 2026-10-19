@@ -358,12 +358,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onRefreshAllData }) 
             </div>
 
             {/* Mode selection */}
-            <div className="space-y-2 text-xs">
+            <div className="space-y-2.5 text-xs">
               <label className="font-bold text-gray-800 block">
                 {language === 'id' ? 'Pilih Metode Pemulihan:' : 'Choose Restoration Mode:'}
               </label>
 
-              <label className="flex items-start gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50/50 cursor-pointer hover:bg-orange-50/30">
+              <label className="flex items-start gap-2.5 p-3 rounded-2xl border border-orange-200 bg-orange-50/40 cursor-pointer hover:bg-orange-50/70 transition">
                 <input
                   type="radio"
                   name="restoreMode"
@@ -371,19 +371,24 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onRefreshAllData }) 
                   onChange={() => setRestoreMode('merge')}
                   className="mt-0.5 accent-orange-600"
                 />
-                <div>
-                  <span className="font-bold text-gray-900 block">
-                    {t.restoreMergeOption}
-                  </span>
-                  <span className="text-[11px] text-gray-500 font-normal">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-gray-900">
+                      {t.restoreMergeOption}
+                    </span>
+                    <span className="text-[10px] font-semibold px-2 py-0.2 rounded-full bg-emerald-100 text-emerald-800">
+                      {language === 'id' ? 'Disarankan (Aman)' : 'Recommended (Safe)'}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-gray-600 leading-relaxed font-normal">
                     {language === 'id'
-                      ? 'Menambahkan data dari cadangan tanpa menghapus data lokal yang sudah ada saat ini.'
-                      : 'Appends backup data without deleting existing local records.'}
-                  </span>
+                      ? 'Menggabungkan data cadangan tanpa menghapus data lokal. Profil baru ditambahkan (hanya diperbarui jika cadangan lebih baru), riwayat sesi tidak diduplikasi, dan rekaman audio lokal tetap aman.'
+                      : 'Merges backup data with local storage without deletion. New profiles added (updated only if newer), sessions are not duplicated, and local audio recordings remain intact.'}
+                  </p>
                 </div>
               </label>
 
-              <label className="flex items-start gap-2.5 p-3 rounded-xl border border-rose-200 bg-rose-50/30 cursor-pointer hover:bg-rose-50/60">
+              <label className="flex items-start gap-2.5 p-3 rounded-2xl border border-rose-200 bg-rose-50/30 cursor-pointer hover:bg-rose-50/60 transition">
                 <input
                   type="radio"
                   name="restoreMode"
@@ -391,15 +396,19 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onRefreshAllData }) 
                   onChange={() => setRestoreMode('replace')}
                   className="mt-0.5 accent-rose-600"
                 />
-                <div>
+                <div className="space-y-1">
                   <span className="font-bold text-rose-950 block">
                     {t.restoreReplaceOption}
                   </span>
-                  <span className="text-[11px] text-rose-800 font-normal">
-                    {language === 'id'
-                      ? 'PERINGATAN: Menghapus seluruh data lokal yang ada dan menggantinya dengan isi berkas cadangan ini.'
-                      : 'WARNING: Clears all current local records and replaces them with this backup.'}
-                  </span>
+                  <p className="text-[11px] text-rose-800 leading-relaxed font-normal">
+                    {pendingRestoreData.isFullBackup
+                      ? (language === 'id'
+                          ? 'PERINGATAN: Menghapus profil, riwayat sesi, favorit, dan audio lokal saat ini, lalu menggantinya secara atomik dengan isi cadangan penuh ini.'
+                          : 'WARNING: Atomically clears local profiles, session logs, favorites, and imported audio, replacing them with this full backup.')
+                      : (language === 'id'
+                          ? 'PERINGATAN: Mengganti profil, sesi, dan favorit. CATATAN KESELAMATAN: Berkas metadata tidak menyertakan rekaman suara, sehingga audio lokal Anda akan tetap dipertahankan dengan aman.'
+                          : 'WARNING: Replaces profiles, sessions, and favorites. SAFETY NOTICE: Metadata-only files do not contain audio; your existing local recordings will be safely preserved.')}
+                  </p>
                 </div>
               </label>
             </div>

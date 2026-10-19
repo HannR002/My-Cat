@@ -192,69 +192,214 @@ export async function blobToDataUrl(blob: Blob): Promise<string> {
 }
 
 /**
- * Converts a base64 Data URL back to a Blob (supports both browser and Node.js)
+ * Validates whether a string is a well-formed audio Base64 Data URL
  */
-export function dataUrlToBlob(dataUrl: string): Blob {
+export function isValidAudioDataUrl(dataUrl: unknown): { isValid: boolean; error?: string } {
+  if (typeof dataUrl !== 'string' || !dataUrl.trim()) {
+    return { isValid: false, error: 'Data URL audio kosong atau bukan string.' };
+  }
+  if (!dataUrl.startsWith('data:audio/')) {
+    return {
+      isValid: false,
+      error: 'Data URL harus berawalan "data:audio/*" (contoh: data:audio/mpeg;base64,...).',
+    };
+  }
   const parts = dataUrl.split(',');
-  const mime = parts[0]?.match(/:(.*?);/)?.[1] || 'audio/mpeg';
-  const base64Str = parts[1] || '';
-  if (typeof Buffer !== 'undefined') {
-    const buf = Buffer.from(base64Str, 'base64');
-    return new Blob([buf], { type: mime });
+  if (parts.length !== 2 || !parts[0].includes(';base64')) {
+    return {
+      isValid: false,
+      error: 'Format data URL tidak valid: harus berisi penanda ";base64," dan blok data.',
+    };
   }
-  const binaryStr = atob(base64Str);
-  const bytes = new Uint8Array(binaryStr.length);
-  for (let i = 0; i < binaryStr.length; i++) {
-    bytes[i] = binaryStr.charCodeAt(i);
+  const base64Str = parts[1].trim();
+  if (!base64Str) {
+    return { isValid: false, error: 'Payload data audio base64 kosong.' };
   }
-  return new Blob([bytes], { type: mime });
+  // Check valid base64 character set
+  const base64Regex = /^[A-Za-z0-9+/=]+$/;
+  if (!base64Regex.test(base64Str)) {
+    return { isValid: false, error: 'Payload base64 mengandung karakter ilegal.' };
+  }
+  return { isValid: true };
 }
 
 /**
- * Validates backup JSON structure and determines if it is a full or metadata-only backup
+ * Converts a base64 Data URL back to a Blob (supports both browser and Node.js)
  */
-export function validateBackupPayload(data: unknown): {
+export function dataUrlToBlob(dataUrl: string): Blob {
+  const check = isValidAudioDataUrl(dataUrl);
+  if (!check.isValid) {
+    throw new Error(check.error || 'Data URL audio tidak valid.');
+  }
+
+  const parts = dataUrl.split(',');
+  const mime = parts[0]?.match(/:(.*?);/)?.[1] || 'audio/mpeg';
+  const base64Str = parts[1].trim();
+
+  try {
+    if (typeof Buffer !== 'undefined') {
+      const buf = Buffer.from(base64Str, 'base64');
+      return new Blob([buf], { type: mime });
+    }
+    const binaryStr = atob(base64Str);
+    const bytes = new Uint8Array(binaryStr.length);
+    for (let i = 0; i < binaryStr.length; i++) {
+      bytes[i] = binaryStr.charCodeAt(i);
+    }
+    return new Blob([bytes], { type: mime });
+  } catch {
+    throw new Error('Gagal mendekode data audio base64: payload rusak.');
+  }
+}
+
+export interface BackupValidationResult {
   isValid: boolean;
   error?: string;
   isFullBackup: boolean;
+  schemaVersion?: number;
   summary?: {
     catsCount: number;
     interactionsCount: number;
     favoritesCount: number;
     importedAudioCount: number;
   };
-} {
+}
+
+/**
+ * Validates backup JSON structure and determines if it is a full or metadata-only backup.
+ * Strictly verifies schema, app identifier, record integrity, and audio payload.
+ */
+export function validateBackupPayload(data: unknown): BackupValidationResult {
   if (!data || typeof data !== 'object') {
     return { isValid: false, error: 'Format berkas tidak valid: data bukan objek JSON.', isFullBackup: false };
   }
   const d = data as Record<string, unknown>;
+
+  // 1. App Identifier
   if (d.app !== 'My Cat') {
     return { isValid: false, error: 'Berkas cadangan tidak dikenali (bukan cadangan aplikasi My Cat).', isFullBackup: false };
   }
+
+  // 2. Schema Version
+  if (typeof d.schemaVersion !== 'number' || d.schemaVersion < 1) {
+    return { isValid: false, error: 'Versi skema cadangan tidak valid atau hilang.', isFullBackup: false };
+  }
+
+  // 3. Backup Type
+  if (d.backupType !== 'metadata_only' && d.backupType !== 'full_backup') {
+    return { isValid: false, error: 'Tipe cadangan (backupType) tidak dikenali.', isFullBackup: false };
+  }
+
+  // 4. Cats Array & Records
   if (!Array.isArray(d.cats)) {
     return { isValid: false, error: 'Format data profil kucing (cats) tidak valid atau hilang.', isFullBackup: false };
   }
+  for (let i = 0; i < d.cats.length; i++) {
+    const c = d.cats[i];
+    if (!c || typeof c !== 'object') {
+      return { isValid: false, error: `Profil kucing pada indeks [${i}] bukan objek valid.`, isFullBackup: false };
+    }
+    const cat = c as Record<string, unknown>;
+    if (typeof cat.id !== 'string' || !cat.id.trim()) {
+      return { isValid: false, error: `Profil kucing pada indeks [${i}] tidak memiliki ID valid.`, isFullBackup: false };
+    }
+    if (typeof cat.name !== 'string' || !cat.name.trim()) {
+      return { isValid: false, error: `Profil kucing "${cat.id}" tidak memiliki nama yang valid.`, isFullBackup: false };
+    }
+    if (typeof cat.ageYears !== 'number' || cat.ageYears < 0 || cat.ageYears > 35) {
+      return { isValid: false, error: `Profil kucing "${cat.name || cat.id}" memiliki data usia tidak wajar.`, isFullBackup: false };
+    }
+  }
+
+  // 5. Interactions Array & Records
   if (!Array.isArray(d.interactions)) {
     return { isValid: false, error: 'Format data riwayat interaksi (interactions) tidak valid atau hilang.', isFullBackup: false };
   }
+  const validReactions = new Set([
+    'approaching',
+    'attentive',
+    'meowing_back',
+    'no_response',
+    'moving_away',
+    'fear_distress',
+    'other',
+  ]);
+  for (let i = 0; i < d.interactions.length; i++) {
+    const s = d.interactions[i];
+    if (!s || typeof s !== 'object') {
+      return { isValid: false, error: `Catatan interaksi pada indeks [${i}] bukan objek valid.`, isFullBackup: false };
+    }
+    const session = s as Record<string, unknown>;
+    if (typeof session.id !== 'string' || !session.id.trim()) {
+      return { isValid: false, error: `Catatan interaksi pada indeks [${i}] tidak memiliki ID valid.`, isFullBackup: false };
+    }
+    if (typeof session.catId !== 'string' || !session.catId.trim()) {
+      return { isValid: false, error: `Catatan interaksi "${session.id}" tidak memiliki ID kucing yang valid.`, isFullBackup: false };
+    }
+    if (typeof session.reaction !== 'string' || !validReactions.has(session.reaction)) {
+      return { isValid: false, error: `Catatan interaksi "${session.id}" memiliki reaksi kucing tidak valid.`, isFullBackup: false };
+    }
+  }
+
+  // 6. Favorites Array
   if (!Array.isArray(d.favorites)) {
     return { isValid: false, error: 'Format data favorit (favorites) tidak valid atau hilang.', isFullBackup: false };
   }
+  for (let i = 0; i < d.favorites.length; i++) {
+    if (typeof d.favorites[i] !== 'string' || !d.favorites[i].trim()) {
+      return { isValid: false, error: `Item favorit pada indeks [${i}] bukan ID audio valid.`, isFullBackup: false };
+    }
+  }
 
-  const isFullBackup = d.backupType === 'full_backup' && Array.isArray(d.importedAudio);
-  const audioCount = isFullBackup
-    ? (d.importedAudio as unknown[]).length
-    : typeof d.importedAudioCount === 'number'
-    ? d.importedAudioCount
-    : 0;
+  // 7. Audio Validation (Full Backup)
+  const isFullBackup = d.backupType === 'full_backup';
+  let audioCount = 0;
+
+  if (isFullBackup) {
+    if (!Array.isArray(d.importedAudio)) {
+      return {
+        isValid: false,
+        error: 'Cadangan penuh harus memiliki daftar rekaman audio (importedAudio).',
+        isFullBackup: true,
+      };
+    }
+    audioCount = d.importedAudio.length;
+    for (let i = 0; i < d.importedAudio.length; i++) {
+      const a = d.importedAudio[i];
+      if (!a || typeof a !== 'object') {
+        return { isValid: false, error: `Rekaman audio pada indeks [${i}] bukan objek valid.`, isFullBackup: true };
+      }
+      const audio = a as Record<string, unknown>;
+      if (typeof audio.id !== 'string' || !audio.id.trim()) {
+        return { isValid: false, error: `Rekaman audio pada indeks [${i}] tidak memiliki ID valid.`, isFullBackup: true };
+      }
+      if (typeof audio.title !== 'string' || !audio.title.trim()) {
+        return { isValid: false, error: `Rekaman audio "${audio.id}" tidak memiliki judul valid.`, isFullBackup: true };
+      }
+      if (audio.audioType !== 'user_imported' && audio.audioType !== 'ai') {
+        return { isValid: false, error: `Tipe audio untuk "${audio.title}" tidak didukung.`, isFullBackup: true };
+      }
+      const urlValidation = isValidAudioDataUrl(audio.dataUrl);
+      if (!urlValidation.isValid) {
+        return {
+          isValid: false,
+          error: `Data audio untuk "${audio.title}" korup atau tidak valid: ${urlValidation.error}`,
+          isFullBackup: true,
+        };
+      }
+    }
+  } else {
+    audioCount = typeof d.importedAudioCount === 'number' ? d.importedAudioCount : 0;
+  }
 
   return {
     isValid: true,
     isFullBackup,
+    schemaVersion: d.schemaVersion as number,
     summary: {
-      catsCount: (d.cats as unknown[]).length,
-      interactionsCount: (d.interactions as unknown[]).length,
-      favoritesCount: (d.favorites as unknown[]).length,
+      catsCount: d.cats.length,
+      interactionsCount: d.interactions.length,
+      favoritesCount: d.favorites.length,
       importedAudioCount: audioCount,
     },
   };
